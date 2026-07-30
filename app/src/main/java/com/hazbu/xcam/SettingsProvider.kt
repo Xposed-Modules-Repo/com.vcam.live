@@ -9,7 +9,7 @@ import android.net.Uri
 import com.hazbu.xcam.Constants.AUTHORITY
 import com.hazbu.xcam.Constants.KEY_IS_ENABLED
 import com.hazbu.xcam.Constants.KEY_IS_MIRRORED
-import com.hazbu.xcam.Constants.KEY_VIDEO_PATH
+import com.hazbu.xcam.Constants.KEY_MEDIA_PATH
 import com.hazbu.xcam.Constants.PREFS_NAME
 import android.os.ParcelFileDescriptor
 import java.io.File
@@ -25,10 +25,10 @@ class SettingsProvider : ContentProvider() {
         sortOrder: String?
     ): Cursor {
         val prefs = context?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val path = prefs?.getString(KEY_VIDEO_PATH, "") ?: ""
-        val fileName = if (path.isNotEmpty()) File(path).name else "video"
+        val path = prefs?.getString(KEY_MEDIA_PATH, "") ?: ""
+        val fileName = if (path.isNotEmpty()) File(path).name else "media"
         
-        val cursor = MatrixCursor(arrayOf(KEY_VIDEO_PATH, KEY_IS_ENABLED, KEY_IS_MIRRORED))
+        val cursor = MatrixCursor(arrayOf(KEY_MEDIA_PATH, KEY_IS_ENABLED, KEY_IS_MIRRORED))
         val videoUri = "content://$AUTHORITY/$fileName"
         
         cursor.addRow(arrayOf(

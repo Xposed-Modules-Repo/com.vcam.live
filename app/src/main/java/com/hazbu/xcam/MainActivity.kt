@@ -1,11 +1,15 @@
 package com.hazbu.xcam
 
 import android.content.Intent
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
+import android.view.View
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -20,14 +24,16 @@ import com.google.android.material.color.DynamicColors
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.hazbu.xcam.Constants.KEY_IS_MIRRORED
-import com.hazbu.xcam.Constants.KEY_VIDEO_PATH
+import com.hazbu.xcam.Constants.KEY_MEDIA_PATH
 import com.hazbu.xcam.Constants.PREFS_NAME
 import java.io.File
 import java.io.FileOutputStream
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var tvVideoPath: TextView
+    private lateinit var ivPreview: ImageView
+    private lateinit var tvNoPreview: TextView
+    private lateinit var btnDeleteMedia: MaterialButton
     private lateinit var switchMirror: SwitchMaterial
     private lateinit var btnSelectVideo: MaterialButton
 
@@ -53,7 +59,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupWindowInsets() {
-        val mainView = findViewById<android.view.View>(R.id.main)
+        val mainView = findViewById<View>(R.id.main)
         ViewCompat.setOnApplyWindowInsetsListener(mainView) { v, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             val density = resources.displayMetrics.density
@@ -72,12 +78,19 @@ class MainActivity : AppCompatActivity() {
         val tvTitle = findViewById<TextView>(R.id.tv_title)
         setupTitleSpannable(tvTitle)
 
-        tvVideoPath = findViewById(R.id.tv_video_path)
+        ivPreview = findViewById(R.id.iv_preview)
+        tvNoPreview = findViewById(R.id.tv_no_preview)
+        btnDeleteMedia = findViewById(R.id.btn_delete_media)
         switchMirror = findViewById(R.id.switch_mirror)
         btnSelectVideo = findViewById(R.id.btn_select_video)
 
         switchMirror.setOnCheckedChangeListener { _, isChecked ->
             saveMirrorState(isChecked)
+            updatePreviewMirror(isChecked)
+        }
+
+        btnDeleteMedia.setOnClickListener {
+            deleteMedia()
         }
 
         btnSelectVideo.setOnClickListener {
@@ -106,20 +119,53 @@ class MainActivity : AppCompatActivity() {
                     input.copyTo(output)
                 }
             }
-            saveVideoPath(internalFile.absolutePath)
-            Toast.makeText(this, "Media successfully imported", Toast.LENGTH_SHORT).show()
+            saveMediaPath(internalFile.absolutePath)
+            Toast.makeText(this, R.string.toast_media_imported, Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Toast.makeText(this, "Failed to import media: ${e.message}", Toast.LENGTH_LONG).show()
+            val errorMsg = getString(R.string.toast_media_import_failed, e.message)
+            Toast.makeText(this, errorMsg, Toast.LENGTH_LONG).show()
         }
     }
 
     private fun loadSettings() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val videoPath = prefs.getString(KEY_VIDEO_PATH, "") ?: ""
+        val mediaPath = prefs.getString(KEY_MEDIA_PATH, "") ?: ""
         val isMirrored = prefs.getBoolean(KEY_IS_MIRRORED, false)
 
-        tvVideoPath.text = videoPath.ifEmpty { getString(R.string.label_none) }
+        updatePreview(mediaPath)
         switchMirror.isChecked = isMirrored
+        updatePreviewMirror(isMirrored)
+    }
+
+    private fun updatePreviewMirror(isMirrored: Boolean) {
+        ivPreview.scaleX = if (isMirrored) -1f else 1f
+    }
+
+    private fun updatePreview(path: String) {
+        if (path.isEmpty() || !File(path).exists()) {
+            ivPreview.setImageBitmap(null)
+            tvNoPreview.visibility = View.VISIBLE
+            btnDeleteMedia.visibility = View.GONE
+            return
+        }
+
+        tvNoPreview.visibility = View.GONE
+        btnDeleteMedia.visibility = View.VISIBLE
+        try {
+            if (path.endsWith(".mp4", ignoreCase = true)) {
+                val retriever = MediaMetadataRetriever()
+                retriever.setDataSource(path)
+                val bitmap = retriever.getFrameAtTime(1000000) // 1 second in
+                ivPreview.setImageBitmap(bitmap)
+                retriever.release()
+            } else {
+                val bitmap = BitmapFactory.decodeFile(path)
+                ivPreview.setImageBitmap(bitmap)
+            }
+        } catch (_: Exception) {
+            ivPreview.setImageBitmap(null)
+            tvNoPreview.visibility = View.VISIBLE
+        }
     }
 
     private fun saveMirrorState(isMirrored: Boolean) {
@@ -129,11 +175,18 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, R.string.toast_saved, Toast.LENGTH_SHORT).show()
     }
 
-    private fun saveVideoPath(path: String) {
+    private fun saveMediaPath(path: String) {
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
-            putString(KEY_VIDEO_PATH, path)
+            putString(KEY_MEDIA_PATH, path)
         }
-        tvVideoPath.text = path
+        updatePreview(path)
+    }
+
+    private fun deleteMedia() {
+        File(filesDir, "virtual.mp4").delete()
+        File(filesDir, "virtual.jpg").delete()
+        saveMediaPath("")
+        Toast.makeText(this, R.string.toast_media_removed, Toast.LENGTH_SHORT).show()
     }
 
     private fun setupTitleSpannable(tvTitle: TextView) {

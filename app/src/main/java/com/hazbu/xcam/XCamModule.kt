@@ -22,7 +22,7 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam
 import java.util.concurrent.atomic.AtomicBoolean
 
 class XCamModule : IXposedHookLoadPackage {
-    private var videoPath: String? = null
+    private var mediaPath: String? = null
     private var isMirrored = false
     private var isInitialized = false
     private var mediaPlayer: MediaPlayer? = null
@@ -58,10 +58,10 @@ class XCamModule : IXposedHookLoadPackage {
             val uri = "content://$AUTHORITY".toUri()
             context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
-                    videoPath = cursor.getString(0)
+                    mediaPath = cursor.getString(0)
                     // Index 1 is isEnabled (unused), Index 2 is isMirrored
                     isMirrored = cursor.getString(2) == "1"
-                    XposedBridge.log("xCam: Settings refreshed: $videoPath, mirrored=$isMirrored")
+                    XposedBridge.log("xCam: Settings refreshed: $mediaPath, mirrored=$isMirrored")
                 }
             }
         } catch (e: Exception) {
@@ -92,7 +92,7 @@ class XCamModule : IXposedHookLoadPackage {
             
             val hook = object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
-                    if (videoPath.isNullOrEmpty()) return
+                    if (mediaPath.isNullOrEmpty()) return
                     
                     val surfaces = mutableListOf<Surface>()
                     val arg0 = param.args[0]
@@ -143,10 +143,12 @@ class XCamModule : IXposedHookLoadPackage {
     }
 
     private fun startInjection(surfaces: List<Surface>) {
-        val path = videoPath ?: return
+        val path = mediaPath ?: return
         val context = mContext ?: return
         
         stopCurrentInjection()
+        
+        XposedBridge.log("xCam: startInjection with path: $path")
         
         if (path.endsWith(".mp4", ignoreCase = true)) {
             surfaces.firstOrNull { it.isValid }?.let { startMediaPlayer(context, path, it) }
