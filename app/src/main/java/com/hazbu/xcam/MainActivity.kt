@@ -1,5 +1,5 @@
 package com.hazbu.xcam
-import android.content.Context
+
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -18,8 +18,6 @@ import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.color.DynamicColors
 import com.google.android.material.color.MaterialColors
-import com.google.android.material.switchmaterial.SwitchMaterial
-import com.hazbu.xcam.Constants.KEY_IS_ENABLED
 import com.hazbu.xcam.Constants.KEY_VIDEO_PATH
 import com.hazbu.xcam.Constants.PREFS_NAME
 import java.io.File
@@ -27,12 +25,11 @@ import java.io.FileOutputStream
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var switchEnable: SwitchMaterial
     private lateinit var tvVideoPath: TextView
     private lateinit var btnSelectVideo: MaterialButton
 
     private val videoPickerLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
+        ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         if (result.resultCode == RESULT_OK) {
             val data: Intent? = result.data
@@ -72,13 +69,8 @@ class MainActivity : AppCompatActivity() {
         val tvTitle = findViewById<TextView>(R.id.tv_title)
         setupTitleSpannable(tvTitle)
 
-        switchEnable = findViewById(R.id.switch_enable)
         tvVideoPath = findViewById(R.id.tv_video_path)
         btnSelectVideo = findViewById(R.id.btn_select_video)
-
-        switchEnable.setOnCheckedChangeListener { _, isChecked ->
-            saveEnableState(isChecked)
-        }
 
         btnSelectVideo.setOnClickListener {
             val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -106,18 +98,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadSettings() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val isEnabled = prefs.getBoolean(KEY_IS_ENABLED, false)
         val videoPath = prefs.getString(KEY_VIDEO_PATH, "") ?: ""
 
-        switchEnable.isChecked = isEnabled
-        tvVideoPath.text = if (videoPath.isEmpty()) getString(R.string.label_none) else videoPath
-    }
-
-    private fun saveEnableState(isEnabled: Boolean) {
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
-            putBoolean(KEY_IS_ENABLED, isEnabled)
-        }
-        Toast.makeText(this, R.string.toast_saved, Toast.LENGTH_SHORT).show()
+        tvVideoPath.text = videoPath.ifEmpty { getString(R.string.label_none) }
     }
 
     private fun saveVideoPath(path: String) {

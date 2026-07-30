@@ -1,15 +1,13 @@
 package com.hazbu.xcam
 import android.content.Context
 import android.hardware.camera2.CameraCaptureSession
-import android.hardware.camera2.CameraDevice
-import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.params.SessionConfiguration
 import android.media.Image
-import android.media.ImageReader
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Handler
 import android.view.Surface
+import androidx.core.net.toUri
 import com.hazbu.xcam.Constants.AUTHORITY
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
@@ -19,7 +17,6 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam
 
 class XCamModule : IXposedHookLoadPackage {
     private var videoPath: String? = null
-    private var isEnabled = false
     private var isInitialized = false
     private var mediaPlayer: MediaPlayer? = null
     private var targetSurface: Surface? = null
@@ -50,12 +47,11 @@ class XCamModule : IXposedHookLoadPackage {
 
     private fun refreshSettings(context: Context) {
         try {
-            val uri = Uri.parse("content://$AUTHORITY")
+            val uri = "content://$AUTHORITY".toUri()
             context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     videoPath = cursor.getString(0)
-                    isEnabled = cursor.getString(1) == "1"
-                    XposedBridge.log("xCam: Settings refreshed: $videoPath, enabled=$isEnabled")
+                    XposedBridge.log("xCam: Settings refreshed: $videoPath")
                 }
             }
         } catch (e: Exception) {
@@ -79,7 +75,7 @@ class XCamModule : IXposedHookLoadPackage {
     }
 
     private fun hookCamera2(lpparam: LoadPackageParam) {
-        XposedBridge.log("xCam: [VER 2] Setting up Camera2 hooks for ${lpparam.packageName}")
+        XposedBridge.log("xCam: Initializing Camera2 hooks for ${lpparam.packageName}")
 
         try {
             val cameraDeviceImpl = "android.hardware.camera2.impl.CameraDeviceImpl"
@@ -87,8 +83,7 @@ class XCamModule : IXposedHookLoadPackage {
             // Hook all createCaptureSession variants
             val hook = object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
-                    if (!isEnabled || videoPath.isNullOrEmpty()) return
-                    XposedBridge.log("xCam: Camera2 ${param.method.name} called")
+                    if (videoPath.isNullOrEmpty()) return
                     
                     var foundSurface: Surface? = null
                     
@@ -142,7 +137,6 @@ class XCamModule : IXposedHookLoadPackage {
                 "acquireNextImage",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        if (!isEnabled) return
                         val image = param.result as? Image ?: return
                         // Only log once every 30 frames to avoid spamming
                         if (System.currentTimeMillis() % 1000 < 33) {
@@ -180,7 +174,7 @@ class XCamModule : IXposedHookLoadPackage {
                 
                 setOnPreparedListener { 
                     it.start()
-                    XposedBridge.log("xCam: MediaPlayer started successfully")
+                    XposedBridge.log("xCam: Virtual feed started")
                 }
                 
                 setOnErrorListener { _, what, extra ->
@@ -188,11 +182,10 @@ class XCamModule : IXposedHookLoadPackage {
                     true
                 }
                 
-                XposedBridge.log("xCam: Preparing MediaPlayer asynchronously...")
                 prepareAsync()
             }
         } catch (e: Exception) {
-            XposedBridge.log("xCam: Exception in startVideoInjection: ${e.message}")
+            XposedBridge.log("xCam: Error in startVideoInjection: ${e.message}")
         }
     }
 }
