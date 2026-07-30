@@ -18,6 +18,8 @@ import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.color.DynamicColors
 import com.google.android.material.color.MaterialColors
+import com.google.android.material.switchmaterial.SwitchMaterial
+import com.hazbu.xcam.Constants.KEY_IS_MIRRORED
 import com.hazbu.xcam.Constants.KEY_VIDEO_PATH
 import com.hazbu.xcam.Constants.PREFS_NAME
 import java.io.File
@@ -26,6 +28,7 @@ import java.io.FileOutputStream
 class MainActivity : AppCompatActivity() {
 
     private lateinit var tvVideoPath: TextView
+    private lateinit var switchMirror: SwitchMaterial
     private lateinit var btnSelectVideo: MaterialButton
 
     private val videoPickerLauncher = registerForActivityResult(
@@ -34,7 +37,7 @@ class MainActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK) {
             val data: Intent? = result.data
             data?.data?.let { uri ->
-                copyVideoToInternal(uri)
+                copyMediaToInternal(uri)
             }
         }
     }
@@ -70,37 +73,60 @@ class MainActivity : AppCompatActivity() {
         setupTitleSpannable(tvTitle)
 
         tvVideoPath = findViewById(R.id.tv_video_path)
+        switchMirror = findViewById(R.id.switch_mirror)
         btnSelectVideo = findViewById(R.id.btn_select_video)
+
+        switchMirror.setOnCheckedChangeListener { _, isChecked ->
+            saveMirrorState(isChecked)
+        }
 
         btnSelectVideo.setOnClickListener {
             val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
-                type = "video/*"
+                type = "*/*"
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
             }
             videoPickerLauncher.launch(intent)
         }
     }
 
-    private fun copyVideoToInternal(uri: Uri) {
+    private fun copyMediaToInternal(uri: Uri) {
         try {
-            val internalFile = File(filesDir, "virtual.mp4")
+            val mimeType = contentResolver.getType(uri)
+            val extension = if (mimeType?.startsWith("image") == true) "jpg" else "mp4"
+            
+            // Clean up existing files
+            File(filesDir, "virtual.mp4").delete()
+            File(filesDir, "virtual.jpg").delete()
+            
+            val internalFile = File(filesDir, "virtual.$extension")
+            
             contentResolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(internalFile).use { output ->
                     input.copyTo(output)
                 }
             }
             saveVideoPath(internalFile.absolutePath)
-            Toast.makeText(this, "Video successfully imported", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Media successfully imported", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Toast.makeText(this, "Failed to import video: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Failed to import media: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun loadSettings() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val videoPath = prefs.getString(KEY_VIDEO_PATH, "") ?: ""
+        val isMirrored = prefs.getBoolean(KEY_IS_MIRRORED, false)
 
         tvVideoPath.text = videoPath.ifEmpty { getString(R.string.label_none) }
+        switchMirror.isChecked = isMirrored
+    }
+
+    private fun saveMirrorState(isMirrored: Boolean) {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
+            putBoolean(KEY_IS_MIRRORED, isMirrored)
+        }
+        Toast.makeText(this, R.string.toast_saved, Toast.LENGTH_SHORT).show()
     }
 
     private fun saveVideoPath(path: String) {

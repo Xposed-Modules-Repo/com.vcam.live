@@ -2,9 +2,10 @@
     <string name="app_name">xCam</string>
     <string name="title_manager">xCam Manager</string>
     <string name="label_enable">Enable Virtual Camera</string>
-    <string name="label_video_path">Selected Video:</string>
+    <string name="label_video_path">Selected Media:</string>
+    <string name="label_mirror">Mirror Horizontal</string>
     <string name="label_none">None</string>
-    <string name="btn_select_video">Select Video File</string>
+    <string name="btn_select_video">Select Image or Video</string>
     <string name="note_restart">Note: Target apps must be restarted to apply changes.</string>
     <string name="toast_saved">Settings Saved</string>
     <string name="toast_permission_denied">Permission Denied</string>

@@ -2,12 +2,15 @@ package com.hazbu.xcam
 
 import android.content.ContentProvider
 import android.content.ContentValues
+import android.content.Context
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
 import com.hazbu.xcam.Constants.AUTHORITY
 import com.hazbu.xcam.Constants.KEY_IS_ENABLED
+import com.hazbu.xcam.Constants.KEY_IS_MIRRORED
 import com.hazbu.xcam.Constants.KEY_VIDEO_PATH
+import com.hazbu.xcam.Constants.PREFS_NAME
 import android.os.ParcelFileDescriptor
 import java.io.File
 
@@ -21,21 +24,25 @@ class SettingsProvider : ContentProvider() {
         selectionArgs: Array<out String>?,
         sortOrder: String?
     ): Cursor {
-        val cursor = MatrixCursor(arrayOf(KEY_VIDEO_PATH, KEY_IS_ENABLED))
+        val prefs = context?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val path = prefs?.getString(KEY_VIDEO_PATH, "") ?: ""
+        val fileName = if (path.isNotEmpty()) File(path).name else "video"
         
-        // Return a stable URI for the video file that our provider will handle
-        val videoUri = "content://$AUTHORITY/video"
+        val cursor = MatrixCursor(arrayOf(KEY_VIDEO_PATH, KEY_IS_ENABLED, KEY_IS_MIRRORED))
+        val videoUri = "content://$AUTHORITY/$fileName"
         
         cursor.addRow(arrayOf(
             videoUri,
-            "1" // Always enabled
+            "1", // Always enabled
+            if (prefs?.getBoolean(KEY_IS_MIRRORED, false) == true) "1" else "0"
         ))
         return cursor
     }
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
         val context = context ?: return null
-        val file = File(context.filesDir, "virtual.mp4")
+        val fileName = uri.lastPathSegment ?: "virtual.mp4"
+        val file = File(context.filesDir, fileName)
         
         if (!file.exists()) {
             return null
