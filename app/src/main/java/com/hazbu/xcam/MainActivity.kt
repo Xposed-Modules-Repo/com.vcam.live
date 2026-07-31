@@ -197,10 +197,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun saveMediaPath(path: String) {
+        isMirrored = false
+        rotationAngle = 0
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
             putString(KEY_MEDIA_PATH, path)
+            putBoolean(KEY_IS_MIRRORED, isMirrored)
+            putInt(KEY_ROTATION_ANGLE, rotationAngle)
         }
         updatePreview(path)
+        updatePreviewTransform()
     }
 
     private fun deleteMedia() {
