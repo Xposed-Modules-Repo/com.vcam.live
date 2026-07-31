@@ -22,8 +22,8 @@ import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.color.DynamicColors
 import com.google.android.material.color.MaterialColors
-import com.google.android.material.switchmaterial.SwitchMaterial
 import com.hazbu.xcam.Constants.KEY_IS_MIRRORED
+import com.hazbu.xcam.Constants.KEY_ROTATION_ANGLE
 import com.hazbu.xcam.Constants.KEY_MEDIA_PATH
 import com.hazbu.xcam.Constants.PREFS_NAME
 import java.io.File
@@ -34,8 +34,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var ivPreview: ImageView
     private lateinit var tvNoPreview: TextView
     private lateinit var btnDeleteMedia: MaterialButton
-    private lateinit var switchMirror: SwitchMaterial
+    private lateinit var btnMirror: MaterialButton
+    private lateinit var btnRotateLeft: MaterialButton
+    private lateinit var btnRotateRight: MaterialButton
     private lateinit var btnSelectVideo: MaterialButton
+
+    private var isMirrored = false
+    private var rotationAngle = 0
 
     private val videoPickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -81,12 +86,27 @@ class MainActivity : AppCompatActivity() {
         ivPreview = findViewById(R.id.iv_preview)
         tvNoPreview = findViewById(R.id.tv_no_preview)
         btnDeleteMedia = findViewById(R.id.btn_delete_media)
-        switchMirror = findViewById(R.id.switch_mirror)
+        btnMirror = findViewById(R.id.btn_mirror)
+        btnRotateLeft = findViewById(R.id.btn_rotate_left)
+        btnRotateRight = findViewById(R.id.btn_rotate_right)
         btnSelectVideo = findViewById(R.id.btn_select_video)
 
-        switchMirror.setOnCheckedChangeListener { _, isChecked ->
-            saveMirrorState(isChecked)
-            updatePreviewMirror(isChecked)
+        btnMirror.setOnClickListener {
+            isMirrored = !isMirrored
+            saveSettings()
+            updatePreviewTransform()
+        }
+
+        btnRotateLeft.setOnClickListener {
+            rotationAngle = (rotationAngle - 90 + 360) % 360
+            saveSettings()
+            updatePreviewTransform()
+        }
+
+        btnRotateRight.setOnClickListener {
+            rotationAngle = (rotationAngle + 90) % 360
+            saveSettings()
+            updatePreviewTransform()
         }
 
         btnDeleteMedia.setOnClickListener {
@@ -130,15 +150,16 @@ class MainActivity : AppCompatActivity() {
     private fun loadSettings() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val mediaPath = prefs.getString(KEY_MEDIA_PATH, "") ?: ""
-        val isMirrored = prefs.getBoolean(KEY_IS_MIRRORED, false)
+        isMirrored = prefs.getBoolean(KEY_IS_MIRRORED, false)
+        rotationAngle = prefs.getInt(KEY_ROTATION_ANGLE, 0)
 
         updatePreview(mediaPath)
-        switchMirror.isChecked = isMirrored
-        updatePreviewMirror(isMirrored)
+        updatePreviewTransform()
     }
 
-    private fun updatePreviewMirror(isMirrored: Boolean) {
+    private fun updatePreviewTransform() {
         ivPreview.scaleX = if (isMirrored) -1f else 1f
+        ivPreview.rotation = rotationAngle.toFloat()
     }
 
     private fun updatePreview(path: String) {
@@ -168,11 +189,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun saveMirrorState(isMirrored: Boolean) {
+    private fun saveSettings() {
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit {
             putBoolean(KEY_IS_MIRRORED, isMirrored)
+            putInt(KEY_ROTATION_ANGLE, rotationAngle)
         }
-        Toast.makeText(this, R.string.toast_saved, Toast.LENGTH_SHORT).show()
     }
 
     private fun saveMediaPath(path: String) {

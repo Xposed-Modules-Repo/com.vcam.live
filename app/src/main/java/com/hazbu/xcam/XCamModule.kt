@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class XCamModule : IXposedHookLoadPackage {
     private var mediaPath: String? = null
     private var isMirrored = false
+    private var rotationAngle = 0
     private var isInitialized = false
     private var mediaPlayer: MediaPlayer? = null
     private var mContext: Context? = null
@@ -59,9 +60,10 @@ class XCamModule : IXposedHookLoadPackage {
             context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     mediaPath = cursor.getString(0)
-                    // Index 1 is isEnabled (unused), Index 2 is isMirrored
+                    // Index 1 is isEnabled (unused), Index 2 is isMirrored, Index 3 is rotationAngle
                     isMirrored = cursor.getString(2) == "1"
-                    XposedBridge.log("xCam: Settings refreshed: $mediaPath, mirrored=$isMirrored")
+                    rotationAngle = cursor.getString(3).toIntOrNull() ?: 0
+                    XposedBridge.log("xCam: Settings refreshed: $mediaPath, mirrored=$isMirrored, rotation=$rotationAngle")
                 }
             }
         } catch (e: Exception) {
@@ -216,15 +218,16 @@ class XCamModule : IXposedHookLoadPackage {
                         if (canvas != null) {
                             val destRect = calculateDestRect(bitmap.width, bitmap.height, canvas.width, canvas.height)
                             
+                            canvas.save()
                             if (isMirrored) {
-                                canvas.save()
                                 // Mirror horizontally
                                 canvas.scale(-1f, 1f, canvas.width / 2f, canvas.height / 2f)
-                                canvas.drawBitmap(bitmap, srcRect, destRect, null)
-                                canvas.restore()
-                            } else {
-                                canvas.drawBitmap(bitmap, srcRect, destRect, null)
                             }
+                            if (rotationAngle != 0) {
+                                canvas.rotate(rotationAngle.toFloat(), canvas.width / 2f, canvas.height / 2f)
+                            }
+                            canvas.drawBitmap(bitmap, srcRect, destRect, null)
+                            canvas.restore()
                         }
                     } catch (e: Exception) {
                         // If we can't lock, wait a bit longer

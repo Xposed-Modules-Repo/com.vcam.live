@@ -24,7 +24,7 @@
 
 1. Download and install the **xCam APK**.
 2. Open your Xposed manager (e.g., LSPosed) and **enable** the xCam module.
-3. Select the **target applications** you want to hook (e.g., a camera or attendance app).
+3. Select the **target applications** you want to hook.
 4. Reboot or Force Stop the target application.
 
 ## 📖 Usage

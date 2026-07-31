@@ -9,6 +9,7 @@ import android.net.Uri
 import com.hazbu.xcam.Constants.AUTHORITY
 import com.hazbu.xcam.Constants.KEY_IS_ENABLED
 import com.hazbu.xcam.Constants.KEY_IS_MIRRORED
+import com.hazbu.xcam.Constants.KEY_ROTATION_ANGLE
 import com.hazbu.xcam.Constants.KEY_MEDIA_PATH
 import com.hazbu.xcam.Constants.PREFS_NAME
 import android.os.ParcelFileDescriptor
@@ -28,13 +29,14 @@ class SettingsProvider : ContentProvider() {
         val path = prefs?.getString(KEY_MEDIA_PATH, "") ?: ""
         val fileName = if (path.isNotEmpty()) File(path).name else "media"
         
-        val cursor = MatrixCursor(arrayOf(KEY_MEDIA_PATH, KEY_IS_ENABLED, KEY_IS_MIRRORED))
+        val cursor = MatrixCursor(arrayOf(KEY_MEDIA_PATH, KEY_IS_ENABLED, KEY_IS_MIRRORED, KEY_ROTATION_ANGLE))
         val videoUri = "content://$AUTHORITY/$fileName"
         
         cursor.addRow(arrayOf(
             videoUri,
             "1", // Always enabled
-            if (prefs?.getBoolean(KEY_IS_MIRRORED, false) == true) "1" else "0"
+            if (prefs?.getBoolean(KEY_IS_MIRRORED, false) == true) "1" else "0",
+            (prefs?.getInt(KEY_ROTATION_ANGLE, 0) ?: 0).toString()
         ))
         return cursor
     }

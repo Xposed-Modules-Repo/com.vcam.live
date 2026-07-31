@@ -81,18 +81,34 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:gravity="center_vertical"
+                    android:gravity="center"
                     android:paddingBottom="16dp">
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/label_mirror"
-                        android:textAppearance="?attr/textAppearanceTitleMedium" />
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/switch_mirror"
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_rotate_left"
+                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        app:icon="@drawable/ic_rotate_left"
+                        android:contentDescription="@string/desc_rotate_left" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_mirror"
+                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        app:icon="@drawable/ic_mirror"
+                        android:contentDescription="@string/desc_mirror" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_rotate_right"
+                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        app:icon="@drawable/ic_rotate_right"
+                        android:contentDescription="@string/desc_rotate_right" />
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton
