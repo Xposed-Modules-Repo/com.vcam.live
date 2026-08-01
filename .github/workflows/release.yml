@@ -11,6 +11,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      commit_message: ${{ steps.commit_msg.outputs.message }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -66,7 +68,6 @@ jobs:
           support=https://github.com/Xposed-Modules-Repo/$PACKAGE_ID/issues
           EOF
           
-          # Push back to private repo root
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor }}@users.noreply.github.com"
           git add module.prop
@@ -79,18 +80,25 @@ jobs:
           TAG_NAME=${{ github.ref_name }}
           mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/${REPO_NAME}-${TAG_NAME}.apk
 
+      - name: Get Commit Message
+        id: commit_msg
+        run: |
+          MSG=$(git log -1 --pretty=%B)
+          echo "message=$MSG" >> $GITHUB_OUTPUT
+
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
           files: app/build/outputs/apk/release/*.apk
+          body: ${{ steps.commit_msg.outputs.message }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Trigger Mirror Sync
-        if: success()
-        uses: ./.github/workflows/mirror_official.yml
-        with:
-          tag_name: ${{ github.ref_name }}
-          release_name: ${{ github.ref_name }}
-        secrets: inherit
+  mirror:
+    needs: build
+    uses: ./.github/workflows/mirror_official.yml
+    with:
+      tag_name: ${{ github.ref_name }}
+      release_name: ${{ github.ref_name }}
+    secrets: inherit

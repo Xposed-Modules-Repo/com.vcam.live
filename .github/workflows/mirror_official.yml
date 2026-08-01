@@ -60,6 +60,5 @@ jobs:
           files: "*.apk"
           tag_name: ${{ inputs.tag_name }}
           name: ${{ inputs.release_name }}
-          body: ${{ inputs.release_body }}
           draft: false
           prerelease: false
