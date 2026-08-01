@@ -1,69 +1,65 @@
 name: Sync to Official Mirror
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      tag_name:
+        required: true
+        type: string
+      release_name:
+        required: true
+        type: string
+      release_body:
+        required: false
+        type: string
+    secrets:
+      MIRROR_REPO_TOKEN:
+        required: true
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Metadata
         uses: actions/checkout@v4
         with:
+          ref: main # Pastikan mengambil versi module.prop terbaru yang baru saja di-push
           fetch-depth: 0
 
-      - name: Sync and Generate Metadata
+      - name: Sync to Official Repo
         run: |
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor }}@users.noreply.github.com"
           
-          # 1. Extract Package ID
-          PACKAGE_ID=$(grep "applicationId =" app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          PACKAGE_ID=$(grep "^id=" module.prop | cut -d'=' -f2)
+          TARGET_REPO="Xposed-Modules-Repo/$PACKAGE_ID"
           
-          # 2. Dynamic Target Repo
-          ORG_NAME="Xposed-Modules-Repo"
-          TARGET_REPO="$ORG_NAME/$PACKAGE_ID"
-          
-          # 3. Clone Official Repo
           git clone https://x-access-token:${{ secrets.MIRROR_REPO_TOKEN }}@github.com/$TARGET_REPO.git mirror
           
-          # 4. Extract App Name and Description
-          APP_NAME=$(grep '<string name="app_name">' app/src/main/res/values/strings.xml | sed 's/.*>\(.*\)<.*/\1/')
-          DESCRIPTION=$(grep 'android:name="xposeddescription"' app/src/main/AndroidManifest.xml | sed 's/.*android:value="\(.*\)".*/\1/')
+          # Mirror tinggal copy module.prop dan README.md dari root private
+          cp module.prop README.md mirror/
           
-          # 5. Generate module.prop
-          cat <<EOF > mirror/module.prop
-          id=$PACKAGE_ID
-          name=$APP_NAME
-          version=${{ github.event.release.tag_name }}
-          versionCode=$(git tag | wc -l)
-          author=${{ github.actor }}
-          description=$DESCRIPTION
-          support=https://github.com/$TARGET_REPO/issues
-          EOF
-          
-          cp README.md mirror/
           cd mirror
           git add .
-          git commit -m "Release ${{ github.event.release.tag_name }}" || exit 0
+          git commit -m "Release ${{ inputs.tag_name }}" || echo "No changes"
           git push origin main
           
-          # Export for next steps
           echo "TARGET_REPO=$TARGET_REPO" >> $GITHUB_ENV
 
-      - name: Fetch Artifacts
-        run: gh release download ${{ github.event.release.tag_name }} --pattern "*.apk" --repo ${{ github.repository }}
+      - name: Fetch APK Artifacts
+        run: gh release download ${{ inputs.tag_name }} --pattern "*.apk" --repo ${{ github.repository }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish to Mirror Release
+      - name: Publish Mirror Release
         uses: softprops/action-gh-release@v2
         with:
           repository: ${{ env.TARGET_REPO }}
           token: ${{ secrets.MIRROR_REPO_TOKEN }}
           files: "*.apk"
-          tag_name: ${{ github.event.release.tag_name }}
-          name: ${{ github.event.release.name }}
+          tag_name: ${{ inputs.tag_name }}
+          name: ${{ inputs.release_name }}
+          body: ${{ inputs.release_body }}
           draft: false
           prerelease: false

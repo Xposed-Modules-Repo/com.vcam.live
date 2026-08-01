@@ -38,14 +38,40 @@ jobs:
           echo "count=$TAG_COUNT" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease
+        run: |
+          CLEAN_VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          ./gradlew assembleRelease \
+            -PAPP_VERSION_CODE=${{ steps.version_code.outputs.count }} \
+            -PAPP_VERSION_NAME=$CLEAN_VERSION
         env:
           RELEASE_STORE_FILE: release-key.jks
           RELEASE_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          APP_VERSION_CODE: ${{ steps.version_code.outputs.count }}
-          APP_VERSION_NAME: ${{ github.ref_name }}
+
+      - name: Generate and Commit module.prop
+        run: |
+          PACKAGE_ID=$(grep "applicationId =" app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          APP_NAME=$(grep -oP '(?<=<string name="app_name">).*?(?=</string>)' app/src/main/res/values/strings.xml || grep '<string name="app_name">' app/src/main/res/values/strings.xml | sed 's/.*>\(.*\)<.*/\1/')
+          DESCRIPTION=$(sed -n '/xposeddescription/,/\/>/p' app/src/main/AndroidManifest.xml | grep 'android:value=' | sed 's/.*android:value="\(.*\)".*/\1/')
+          CLEAN_VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          
+          cat <<EOF > module.prop
+          id=$PACKAGE_ID
+          name=$APP_NAME
+          version=$CLEAN_VERSION
+          versionCode=${{ steps.version_code.outputs.count }}
+          author=${{ github.actor }}
+          description=$DESCRIPTION
+          support=https://github.com/Xposed-Modules-Repo/$PACKAGE_ID/issues
+          EOF
+          
+          # Push back to private repo root
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+          git add module.prop
+          git commit -m "Update module.prop to $CLEAN_VERSION [skip ci]" || echo "No changes"
+          git push origin HEAD:main
 
       - name: Rename APK
         run: |
@@ -54,8 +80,18 @@ jobs:
           mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/${REPO_NAME}-${TAG_NAME}.apk
 
       - name: Create Release
+        id: create_release
         uses: softprops/action-gh-release@v2
         with:
           files: app/build/outputs/apk/release/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger Mirror Sync
+        if: success()
+        uses: ./.github/workflows/mirror_official.yml
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: ${{ github.ref_name }}
+        secrets:
+          MIRROR_REPO_TOKEN: ${{ secrets.MIRROR_REPO_TOKEN }}
