@@ -12,86 +12,41 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-      commit_message: ${{ steps.commit_msg.outputs.message }}
+      commit_message: ${{ steps.msg.outputs.text }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: gradle
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      - name: Decode Keystore
+      - name: Prepare Build
+        id: msg
         run: |
+          chmod +x gradlew
           printf "%s" "${{ secrets.SIGNING_KEY }}" | base64 --decode > app/release-key.jks
+          echo "text=$(git log -1 --pretty=%B)" >> $GITHUB_OUTPUT
 
-      - name: Calculate Version Code
-        id: version_code
+      - name: Build
         run: |
-          TAG_COUNT=$(git tag | wc -l)
-          echo "count=$TAG_COUNT" >> $GITHUB_OUTPUT
-
-      - name: Build Release APK
-        run: |
-          CLEAN_VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          ./gradlew assembleRelease \
-            -PAPP_VERSION_CODE=${{ steps.version_code.outputs.count }} \
-            -PAPP_VERSION_NAME=$CLEAN_VERSION
+          V_NAME=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          V_CODE=$(git tag | wc -l)
+          ./gradlew assembleRelease -PAPP_VERSION_CODE=$V_CODE -PAPP_VERSION_NAME=$V_NAME
         env:
           RELEASE_STORE_FILE: release-key.jks
           RELEASE_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Generate and Commit module.prop
-        run: |
-          PACKAGE_ID=$(grep "applicationId =" app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
-          APP_NAME=$(grep -oP '(?<=<string name="app_name">).*?(?=</string>)' app/src/main/res/values/strings.xml || grep '<string name="app_name">' app/src/main/res/values/strings.xml | sed 's/.*>\(.*\)<.*/\1/')
-          DESCRIPTION=$(sed -n '/xposeddescription/,/\/>/p' app/src/main/AndroidManifest.xml | grep 'android:value=' | sed 's/.*android:value="\(.*\)".*/\1/')
-          CLEAN_VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          
-          cat <<EOF > module.prop
-          id=$PACKAGE_ID
-          name=$APP_NAME
-          version=$CLEAN_VERSION
-          versionCode=${{ steps.version_code.outputs.count }}
-          author=${{ github.actor }}
-          description=$DESCRIPTION
-          support=https://github.com/Xposed-Modules-Repo/$PACKAGE_ID/issues
-          EOF
-          
-          git config --global user.name "${{ github.actor }}"
-          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
-          git add module.prop
-          git commit -m "Update module.prop to $CLEAN_VERSION [skip ci]" || echo "No changes"
-          git push origin HEAD:main
-
-      - name: Rename APK
-        run: |
-          REPO_NAME=$(echo "${{ github.repository }}" | cut -d '/' -f 2)
-          TAG_NAME=${{ github.ref_name }}
-          mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/${REPO_NAME}-${TAG_NAME}.apk
-
-      - name: Get Commit Message
-        id: commit_msg
-        run: |
-          MSG=$(git log -1 --pretty=%B)
-          echo "message=$MSG" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        id: create_release
+      - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: app/build/outputs/apk/release/*.apk
-          body: ${{ steps.commit_msg.outputs.message }}
+          body: ${{ steps.msg.outputs.text }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -101,4 +56,5 @@ jobs:
     with:
       tag_name: ${{ github.ref_name }}
       release_name: ${{ github.ref_name }}
+      release_body: ${{ needs.build.outputs.commit_message }}
     secrets: inherit
