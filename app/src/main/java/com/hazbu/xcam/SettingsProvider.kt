@@ -11,12 +11,25 @@ import com.hazbu.xcam.Constants.KEY_IS_ENABLED
 import com.hazbu.xcam.Constants.KEY_IS_MIRRORED
 import com.hazbu.xcam.Constants.KEY_ROTATION_ANGLE
 import com.hazbu.xcam.Constants.KEY_MEDIA_PATH
+import com.hazbu.xcam.Constants.KEY_SCOPED_APPS
 import com.hazbu.xcam.Constants.PREFS_NAME
+import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import java.io.File
 
 class SettingsProvider : ContentProvider() {
     override fun onCreate(): Boolean = true
+
+    override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
+        if (method == "register_scope" && arg != null) {
+            val prefs = context?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val scopedApps = prefs?.getStringSet(KEY_SCOPED_APPS, mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+            if (scopedApps.add(arg)) {
+                prefs?.edit()?.putStringSet(KEY_SCOPED_APPS, scopedApps)?.apply()
+            }
+        }
+        return null
+    }
 
     override fun query(
         uri: Uri,

@@ -16,11 +16,32 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="32dp"
-            android:layout_marginBottom="32dp"
             android:text="@string/title_manager"
             android:textAppearance="?attr/textAppearanceHeadlineLarge"
             android:textStyle="bold"
             android:textColor="?attr/colorOnSurface" />
+
+        <TextView
+            android:id="@+id/tv_module_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Module Inactive"
+            android:textAppearance="?attr/textAppearanceLabelLarge"
+            android:textColor="#FF5252" />
+
+        <LinearLayout
+            android:id="@+id/layout_scoped_apps"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="24dp"
+            android:paddingHorizontal="16dp"
+            android:visibility="gone">
+            <!-- Icons will be added here dynamically -->
+        </LinearLayout>
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/card_settings"
             android:layout_width="match_parent"
