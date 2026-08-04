@@ -11,7 +11,6 @@ import com.hazbu.xcam.Constants.KEY_IS_ENABLED
 import com.hazbu.xcam.Constants.KEY_IS_MIRRORED
 import com.hazbu.xcam.Constants.KEY_ROTATION_ANGLE
 import com.hazbu.xcam.Constants.KEY_MEDIA_PATH
-import com.hazbu.xcam.Constants.KEY_SCOPED_APPS
 import com.hazbu.xcam.Constants.PREFS_NAME
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
@@ -20,16 +19,7 @@ import java.io.File
 class SettingsProvider : ContentProvider() {
     override fun onCreate(): Boolean = true
 
-    override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
-        if (method == "register_scope" && arg != null) {
-            val prefs = context?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val scopedApps = prefs?.getStringSet(KEY_SCOPED_APPS, mutableSetOf())?.toMutableSet() ?: mutableSetOf()
-            if (scopedApps.add(arg)) {
-                prefs?.edit()?.putStringSet(KEY_SCOPED_APPS, scopedApps)?.apply()
-            }
-        }
-        return null
-    }
+    override fun call(method: String, arg: String?, extras: Bundle?): Bundle? = null
 
     override fun query(
         uri: Uri,
@@ -47,7 +37,7 @@ class SettingsProvider : ContentProvider() {
         
         cursor.addRow(arrayOf(
             videoUri,
-            "1", // Always enabled
+            "1",
             if (prefs?.getBoolean(KEY_IS_MIRRORED, false) == true) "1" else "0",
             (prefs?.getInt(KEY_ROTATION_ANGLE, 0) ?: 0).toString()
         ))

@@ -7,7 +7,6 @@ import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.params.OutputConfiguration
 import android.hardware.camera2.params.SessionConfiguration
 import android.media.MediaPlayer
-import android.net.Uri
 import android.opengl.*
 import android.os.Handler
 import android.view.Surface
@@ -32,13 +31,7 @@ class XCamModule : XposedModule() {
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
         super.onPackageReady(param)
-        android.util.Log.i("xCam", ">>> MODULE ACTIVE IN: ${param.packageName} <<<")
-
-        // Jangan lapor jika ini adalah aplikasi manager itu sendiri
-        if (param.packageName != "com.hazbu.xcam") {
-            registerActivity(param.packageName)
-        }
-
+        log(PRIORITY_DEFAULT, "xCam", ">>> MODULE ACTIVE IN: ${param.packageName} <<<")
         if (param.packageName == "com.hazbu.xcam") {
             hookManagerApp(param)
         } else {
@@ -49,63 +42,49 @@ class XCamModule : XposedModule() {
     private fun hookManagerApp(param: XposedModuleInterface.PackageReadyParam) {
         try {
             val clazz = param.classLoader.loadClass("com.hazbu.xcam.MainActivity")
-            val method = clazz.getDeclaredMethod("isModuleActive")
-            hook(method).intercept(object : XposedInterface.Hooker {
-                override fun intercept(chain: XposedInterface.Chain): Any = true
-            })
+            hook(clazz.getDeclaredMethod("checkSelfActive")).intercept { true }
         } catch (e: Exception) {
-            android.util.Log.e("xCam", "Failed to hook manager app: ${e.message}")
+            log(PRIORITY_HIGHEST, "xCam", "Failed to hook manager app: ${e.message}")
         }
     }
 
     private fun hookCameraFeeds(param: XposedModuleInterface.PackageReadyParam) {
         try {
-            // Hook Context sesegera mungkin agar registerActivity bisa dipanggil
             val attachMethod = Class.forName("android.content.ContextWrapper").getDeclaredMethod("attachBaseContext", Context::class.java)
-            hook(attachMethod).intercept(object : XposedInterface.Hooker {
-                override fun intercept(chain: XposedInterface.Chain): Any? {
-                    val result = chain.proceed()
-                    if (!isInitialized) {
-                        mContext = chain.thisObject as? Context
-                        mContext?.let { 
-                            refreshSettings(it)
-                            registerActivity(it.packageName) // Lapor diri saat konteks siap
-                        }
-                        isInitialized = true
-                    }
-                    return result
+            hook(attachMethod).intercept { chain ->
+                val result = chain.proceed()
+                if (!isInitialized) {
+                    mContext = chain.thisObject as? Context
+                    mContext?.let { refreshSettings(it) }
+                    isInitialized = true
                 }
-            })
-
+                result
+            }
             val cameraDeviceImpl = param.classLoader.loadClass("android.hardware.camera2.impl.CameraDeviceImpl")
             val method1 = cameraDeviceImpl.getDeclaredMethod("createCaptureSession", List::class.java, CameraCaptureSession.StateCallback::class.java, Handler::class.java)
             val method2 = cameraDeviceImpl.getDeclaredMethod("createCaptureSession", SessionConfiguration::class.java)
-            
-            val camera2Hooker = object : XposedInterface.Hooker {
-                override fun intercept(chain: XposedInterface.Chain): Any? {
-                    if (!mediaPath.isNullOrEmpty()) {
-                        val surfaces = mutableListOf<Surface>()
-                        val arg0 = chain.args[0]
-                        if (arg0 is SessionConfiguration) {
-                            arg0.outputConfigurations.forEach { it.surface?.let { s -> surfaces.add(s) } }
-                        } else if (arg0 is List<*>) {
-                            arg0.forEach { item ->
-                                when (item) {
-                                    is Surface -> surfaces.add(item)
-                                    is OutputConfiguration -> item.surface?.let { surfaces.add(it) }
-                                }
+            val camera2Hooker = XposedInterface.Hooker { chain ->
+                if (!mediaPath.isNullOrEmpty()) {
+                    val surfaces = mutableListOf<Surface>()
+                    val arg0 = chain.args[0]
+                    if (arg0 is SessionConfiguration) {
+                        arg0.outputConfigurations.forEach { it.surface?.let { s -> surfaces.add(s) } }
+                    } else if (arg0 is List<*>) {
+                        arg0.forEach { item ->
+                            when (item) {
+                                is Surface -> surfaces.add(item)
+                                is OutputConfiguration -> item.surface?.let { surfaces.add(it) }
                             }
                         }
-                        if (surfaces.isNotEmpty()) startInjection(surfaces)
                     }
-                    return chain.proceed()
+                    if (surfaces.isNotEmpty()) startInjection(surfaces)
                 }
+                chain.proceed()
             }
-
             hook(method1).intercept(camera2Hooker)
             hook(method2).intercept(camera2Hooker)
         } catch (e: Exception) {
-            android.util.Log.e("xCam", "Camera hooks failed: ${e.message}")
+            log(PRIORITY_HIGHEST, "xCam", "Camera hook failed: ${e.message}")
         }
     }
 
@@ -122,14 +101,6 @@ class XCamModule : XposedModule() {
         glThread = null
     }
 
-    private fun registerActivity(packageName: String) {
-        try {
-            val uri = "content://$AUTHORITY".toUri()
-            // Mengirim perintah register_scope ke SettingsProvider
-            mContext?.contentResolver?.call(uri, "register_scope", packageName, null)
-        } catch (_: Exception) {}
-    }
-
     private fun refreshSettings(context: Context) {
         try {
             val uri = "content://$AUTHORITY".toUri()
@@ -140,7 +111,9 @@ class XCamModule : XposedModule() {
                     rotationAngle = cursor.getString(3).toIntOrNull() ?: 0
                 }
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            log(PRIORITY_HIGHEST, "xCam", "Settings refresh failed: ${e.message}")
+        }
     }
 
     class GLInjectionThread(
@@ -190,7 +163,7 @@ class XCamModule : XposedModule() {
                     imageLoop()
                 }
             } catch (e: Exception) {
-                module.log(6, "xCam", "GL Error: ${e.message}")
+                module.log(PRIORITY_HIGHEST, "xCam", "GL Error: ${e.message}")
             } finally {
                 releaseResources()
             }
@@ -258,9 +231,9 @@ class XCamModule : XposedModule() {
             GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR.toFloat())
             GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR.toFloat())
             surfaceTexture = SurfaceTexture(textureId).apply { setOnFrameAvailableListener { frameAvailable.set(true) } }
-            initShaders(true)
+            initShaders(isOES = true)
             mediaPlayer = MediaPlayer().apply {
-                val uri = Uri.parse(path)
+                val uri = path.toUri()
                 context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { setDataSource(it.fileDescriptor, it.startOffset, it.length) }
                 setSurface(Surface(surfaceTexture))
                 isLooping = true
@@ -271,7 +244,7 @@ class XCamModule : XposedModule() {
         }
 
         private fun setupImage() {
-            val bitmap = context.contentResolver.openInputStream(Uri.parse(path))?.use { BitmapFactory.decodeStream(it) } ?: return
+            val bitmap = context.contentResolver.openInputStream(path.toUri())?.use { BitmapFactory.decodeStream(it) } ?: return
             val tex = IntArray(1)
             GLES20.glGenTextures(1, tex, 0)
             textureId = tex[0]
@@ -279,7 +252,7 @@ class XCamModule : XposedModule() {
             GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR.toFloat())
             GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR.toFloat())
             GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
-            initShaders(false)
+            initShaders(isOES = false)
             updateMVPMatrix(bitmap.width, bitmap.height)
             bitmap.recycle()
         }
@@ -308,7 +281,7 @@ class XCamModule : XposedModule() {
                         surfaceTexture?.updateTexImage()
                         surfaceTexture?.getTransformMatrix(stMatrix)
                     } catch (_: Exception) { continue }
-                    drawFrame(true)
+                    drawFrame(isOES = true)
                     EGL14.eglSwapBuffers(eglDisplay, eglSurface)
                 } else { sleep(10) }
             }
@@ -316,7 +289,7 @@ class XCamModule : XposedModule() {
 
         private fun imageLoop() {
             while (running.get() && !isInterrupted) {
-                drawFrame(false)
+                drawFrame(isOES = false)
                 EGL14.eglSwapBuffers(eglDisplay, eglSurface)
                 sleep(33)
             }

@@ -9,10 +9,11 @@
     <string name="toast_media_imported">Media successfully imported</string>
     <string name="toast_media_import_failed">Failed to import media: %s</string>
     <string name="desc_media_preview">Media preview</string>
-    <string name="status_module_active">Module Active</string>
-    <string name="status_module_inactive">Module Inactive</string>
+    <string name="status_module_active">Active</string>
+    <string name="status_module_inactive">Inactive</string>
     <string name="desc_rotate_left">Rotate Left</string>
     <string name="desc_rotate_right">Rotate Right</string>
     <string name="desc_mirror">Mirror</string>
+    <string name="label_active_scopes">Active Scopes</string>
 </resources>
 

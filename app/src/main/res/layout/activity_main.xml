@@ -4,6 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="?attr/colorSurface">
+
     <LinearLayout
         android:id="@+id/main"
         android:layout_width="match_parent"
@@ -11,6 +12,7 @@
         android:orientation="vertical"
         android:padding="24dp"
         android:gravity="center_horizontal">
+
         <TextView
             android:id="@+id/tv_title"
             android:layout_width="wrap_content"
@@ -21,27 +23,63 @@
             android:textStyle="bold"
             android:textColor="?attr/colorOnSurface" />
 
-        <TextView
-            android:id="@+id/tv_module_status"
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_module_status"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="Module Inactive"
-            android:textAppearance="?attr/textAppearanceLabelLarge"
-            android:textColor="#FF5252" />
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="24dp"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="1dp"
+            app:strokeColor="?attr/colorOutline"
+            app:cardBackgroundColor="@android:color/transparent">
 
-        <LinearLayout
-            android:id="@+id/layout_scoped_apps"
+            <TextView
+                android:id="@+id/tv_module_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="4dp"
+                android:text="@string/status_module_inactive"
+                android:textAppearance="?attr/textAppearanceLabelLarge"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_scoped_apps"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center"
-            android:layout_marginTop="8dp"
             android:layout_marginBottom="24dp"
-            android:paddingHorizontal="16dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="1dp"
+            app:strokeColor="?attr/colorOutlineVariant"
             android:visibility="gone">
-            <!-- Icons will be added here dynamically -->
-        </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <HorizontalScrollView
+                    android:id="@+id/scroll_scoped_apps"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/layout_scoped_apps"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+                    </LinearLayout>
+                </HorizontalScrollView>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/card_settings"
             android:layout_width="match_parent"
@@ -51,6 +89,7 @@
             app:cardElevation="0dp"
             app:strokeWidth="1dp"
             app:strokeColor="?attr/colorOutlineVariant">
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -73,6 +112,7 @@
                     app:cardBackgroundColor="?attr/colorSurfaceVariant"
                     app:cardElevation="0dp"
                     app:strokeWidth="0dp">
+
                     <androidx.constraintlayout.widget.ConstraintLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content">
@@ -158,6 +198,7 @@
                     app:cornerRadius="12dp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
+
         <TextView
             android:id="@+id/tv_note"
             android:layout_width="match_parent"
@@ -168,4 +209,3 @@
             android:textColor="?attr/colorOnSurfaceVariant" />
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>
-

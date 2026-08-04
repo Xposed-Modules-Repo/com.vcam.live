@@ -8,6 +8,9 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
         </intent>
+        <intent>
+            <action android:name="io.github.libxposed.IRemoteService" />
+        </intent>
     </queries>
 
     <application
@@ -29,6 +32,13 @@
         <meta-data
             android:name="xposedapi"
             android:value="101" />
+
+        <provider
+            android:name="io.github.libxposed.service.XposedProvider"
+            android:authorities="com.hazbu.xcam.XposedService"
+            android:exported="true"
+            tools:ignore="ExportedContentProvider" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
