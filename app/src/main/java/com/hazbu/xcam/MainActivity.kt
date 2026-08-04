@@ -10,6 +10,7 @@ import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.view.View
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -38,6 +39,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnRotateLeft: MaterialButton
     private lateinit var btnRotateRight: MaterialButton
     private lateinit var btnSelectVideo: MaterialButton
+    private lateinit var tvModuleStatus: TextView
+    private lateinit var layoutScopedApps: LinearLayout
 
     private var isMirrored = false
     private var rotationAngle = 0
@@ -61,6 +64,28 @@ class MainActivity : AppCompatActivity() {
         setupWindowInsets()
         setupUI()
         loadSettings()
+        updateModuleStatusUI()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        loadSettings()
+        updateModuleStatusUI()
+    }
+
+    private fun updateModuleStatusUI() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val localScopes = prefs.getStringSet(Constants.KEY_SCOPED_APPS, emptySet()) ?: emptySet()
+        
+        if (isModuleActive() || localScopes.isNotEmpty()) {
+            tvModuleStatus.text = getString(R.string.status_module_active)
+            tvModuleStatus.setTextColor(0xFF4CAF50.toInt())
+            refreshLSPosedScope()
+        } else {
+            tvModuleStatus.text = getString(R.string.status_module_inactive)
+            tvModuleStatus.setTextColor(0xFFFF5252.toInt())
+            layoutScopedApps.visibility = View.GONE
+        }
     }
 
     private fun setupWindowInsets() {
@@ -90,6 +115,8 @@ class MainActivity : AppCompatActivity() {
         btnRotateLeft = findViewById(R.id.btn_rotate_left)
         btnRotateRight = findViewById(R.id.btn_rotate_right)
         btnSelectVideo = findViewById(R.id.btn_select_video)
+        tvModuleStatus = findViewById(R.id.tv_module_status)
+        layoutScopedApps = findViewById(R.id.layout_scoped_apps)
 
         btnMirror.setOnClickListener {
             isMirrored = !isMirrored
@@ -161,7 +188,6 @@ class MainActivity : AppCompatActivity() {
         ivPreview.scaleX = if (isMirrored) -1f else 1f
         ivPreview.rotation = rotationAngle.toFloat()
 
-        // Visual feedback for mirror button
         val activeColor = MaterialColors.getColor(btnMirror, androidx.appcompat.R.attr.colorPrimary)
         val activeIconColor = MaterialColors.getColor(btnMirror, com.google.android.material.R.attr.colorOnPrimary, android.graphics.Color.WHITE)
         val inactiveColor = MaterialColors.getColor(btnMirror, com.google.android.material.R.attr.colorSecondaryContainer, android.graphics.Color.LTGRAY)
@@ -185,7 +211,7 @@ class MainActivity : AppCompatActivity() {
             if (path.endsWith(".mp4", ignoreCase = true)) {
                 val retriever = MediaMetadataRetriever()
                 retriever.setDataSource(path)
-                val bitmap = retriever.getFrameAtTime(1000000) // 1 second in
+                val bitmap = retriever.getFrameAtTime(1000000)
                 ivPreview.setImageBitmap(bitmap)
                 retriever.release()
             } else {
@@ -238,5 +264,92 @@ class MainActivity : AppCompatActivity() {
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
         )
         tvTitle.text = spannable
+    }
+
+    private fun isModuleActive(): Boolean {
+        for (auth in Constants.FRAMEWORK_AUTHORITIES) {
+            try {
+                val uri = Uri.parse("content://$auth/module/$packageName/scope")
+                contentResolver.query(uri, null, null, null, null)?.use {
+                    android.util.Log.d("xCam", "Framework detected: $auth")
+                    return true
+                }
+            } catch (_: Exception) {}
+        }
+        return false
+    }
+
+    private fun getOfficialScope(): List<String> = emptyList()
+
+    private fun refreshLSPosedScope() {
+        layoutScopedApps.removeAllViews()
+        
+        // 1. Try Official Method (Hooked by module in API 101)
+        val officialScope = getOfficialScope()
+        if (officialScope.isNotEmpty()) {
+            officialScope.forEach { pkgName ->
+                if (pkgName != packageName) addAppIconToLayout(pkgName)
+            }
+            layoutScopedApps.visibility = View.VISIBLE
+            return
+        }
+
+        // 2. Fallback to reverse-engineered method
+        var foundInProvider = false
+
+        for (authority in Constants.FRAMEWORK_AUTHORITIES) {
+            try {
+                val uri = Uri.parse("content://$authority/module/${packageName}/scope")
+                contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val pkgIndex = cursor.getColumnIndex("package_name")
+                    if (pkgIndex != -1) {
+                        while (cursor.moveToNext()) {
+                            val pkgName = cursor.getString(pkgIndex)
+                            if (pkgName != packageName) {
+                                addAppIconToLayout(pkgName)
+                                foundInProvider = true
+                            }
+                        }
+                    }
+                }
+                if (foundInProvider) {
+                    android.util.Log.d("xCam", "Found scope data in provider: $authority")
+                    break 
+                }
+            } catch (_: Exception) {}
+        }
+
+        // Fallback to local registration if providers are not accessible
+        if (!foundInProvider) {
+            try {
+                val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                val localScopes = prefs.getStringSet(Constants.KEY_SCOPED_APPS, emptySet())
+                localScopes?.forEach { pkgName ->
+                    if (pkgName != packageName) addAppIconToLayout(pkgName)
+                }
+            } catch (_: Exception) {}
+        }
+
+        if (layoutScopedApps.childCount > 0) {
+            layoutScopedApps.visibility = View.VISIBLE
+        }
+    }
+
+    private fun addAppIconToLayout(pkgName: String) {
+        try {
+            val icon = packageManager.getApplicationIcon(pkgName)
+            val size = (32 * resources.displayMetrics.density).toInt()
+            val imageView = ImageView(this).apply {
+                val params = LinearLayout.LayoutParams(size, size)
+                params.setMargins(12, 0, 12, 0)
+                layoutParams = params
+                setImageDrawable(icon)
+                contentDescription = pkgName
+                setOnClickListener {
+                    Toast.makeText(this@MainActivity, pkgName, Toast.LENGTH_SHORT).show()
+                }
+            }
+            layoutScopedApps.addView(imageView)
+        } catch (_: Exception) {}
     }
 }
