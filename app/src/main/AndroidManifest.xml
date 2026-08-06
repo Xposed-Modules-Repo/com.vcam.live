@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
-        tools:ignore="QueryAllPackagesPermission" />
+        tools:ignore="PackageVisibilityPolicy,QueryAllPackagesPermission" />
 
     <queries>
         <intent>
@@ -28,7 +28,7 @@
             android:value="Virtual Camera Injection for Images and Videos with Rotation and Mirroring support." />
         <meta-data
             android:name="xposedminversion"
-            android:value="82" />
+            android:value="101" />
         <meta-data
             android:name="xposedapi"
             android:value="101" />
@@ -50,7 +50,8 @@
         <provider
             android:name=".SettingsProvider"
             android:authorities="com.hazbu.xcam.provider"
-            android:exported="true" />
+            android:exported="true"
+            tools:ignore="ExportedContentProvider" />
     </application>
 </manifest>
 
