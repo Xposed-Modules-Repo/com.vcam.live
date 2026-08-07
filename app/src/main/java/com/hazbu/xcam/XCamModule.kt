@@ -1,5 +1,6 @@
 package com.hazbu.xcam
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.SurfaceTexture
@@ -10,6 +11,7 @@ import android.media.MediaPlayer
 import android.opengl.*
 import android.os.Handler
 import android.view.Surface
+import android.view.SurfaceHolder
 import androidx.core.net.toUri
 import com.hazbu.xcam.Constants.AUTHORITY
 import io.github.libxposed.api.XposedInterface
@@ -48,6 +50,7 @@ class XCamModule : XposedModule() {
         }
     }
 
+    @SuppressLint("PrivateApi")
     private fun hookCameraFeeds(param: XposedModuleInterface.PackageReadyParam) {
         try {
             val attachMethod = Class.forName("android.content.ContextWrapper").getDeclaredMethod("attachBaseContext", Context::class.java)
@@ -60,9 +63,33 @@ class XCamModule : XposedModule() {
                 }
                 result
             }
+
+            try {
+                val cam1Class = Class.forName("android.hardware.Camera")
+                
+                val setPreviewTexture = cam1Class.getDeclaredMethod("setPreviewTexture", SurfaceTexture::class.java)
+                hook(setPreviewTexture).intercept { chain ->
+                    val st = chain.args[0] as? SurfaceTexture
+                    if (st != null && !mediaPath.isNullOrEmpty()) {
+                        startInjection(listOf(Surface(st)))
+                    }
+                    chain.proceed()
+                }
+
+                val setPreviewDisplay = cam1Class.getDeclaredMethod("setPreviewDisplay", SurfaceHolder::class.java)
+                hook(setPreviewDisplay).intercept { chain ->
+                    val holder = chain.args[0] as? SurfaceHolder
+                    if (holder != null && !mediaPath.isNullOrEmpty()) {
+                        startInjection(listOf(holder.surface))
+                    }
+                    chain.proceed()
+                }
+            } catch (_: Exception) {}
+
             val cameraDeviceImpl = param.classLoader.loadClass("android.hardware.camera2.impl.CameraDeviceImpl")
             val method1 = cameraDeviceImpl.getDeclaredMethod("createCaptureSession", List::class.java, CameraCaptureSession.StateCallback::class.java, Handler::class.java)
             val method2 = cameraDeviceImpl.getDeclaredMethod("createCaptureSession", SessionConfiguration::class.java)
+            
             val camera2Hooker = XposedInterface.Hooker { chain ->
                 if (!mediaPath.isNullOrEmpty()) {
                     val surfaces = mutableListOf<Surface>()
@@ -77,14 +104,16 @@ class XCamModule : XposedModule() {
                             }
                         }
                     }
-                    if (surfaces.isNotEmpty()) startInjection(surfaces)
+                    val validSurfaces = surfaces.filter { it.isValid }
+                    if (validSurfaces.isNotEmpty()) startInjection(validSurfaces)
                 }
                 chain.proceed()
             }
+
             hook(method1).intercept(camera2Hooker)
             hook(method2).intercept(camera2Hooker)
         } catch (e: Exception) {
-            log(PRIORITY_HIGHEST, "xCam", "Camera hook failed: ${e.message}")
+            log(PRIORITY_HIGHEST, "xCam", "Camera hooks failed: ${e.message}")
         }
     }
 

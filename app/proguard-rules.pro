@@ -14,6 +14,7 @@
 
 -keep interface io.github.libxposed.api.** { *; }
 -keep interface io.github.libxposed.service.** { *; }
+-keep class io.github.libxposed.service.** { *; }
 
 -keep class com.hazbu.xcam.** { *; }
 
