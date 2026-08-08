@@ -13,31 +13,31 @@ class XCamInjectors(private val module: XCamModule) {
     private val modernInjector = XCamInjectorsModern(module)
 
     fun installLegacyHooks(param: XposedModuleInterface.PackageReadyParam) {
-        // Hanya install jika OS di bawah Android 12 (API 31)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+        // Hanya untuk Android 9, 10, 11
+        if (Build.VERSION.SDK_INT < 31) {
             legacyInjector.install(param)
         }
     }
 
     fun installCamera1Hooks(param: XposedModuleInterface.PackageReadyParam) {
-        // Camera1 tetap universal karena banyak aplikasi lama masih pakai di OS baru
-        legacyInjector.install(param)
+        // Panggil Method 2 (Direct) dari legacy injector
+        if (Build.VERSION.SDK_INT >= 31) {
+            legacyInjector.installMethod2(param)
+        }
     }
 
     fun installUniversalCaptureHooks(param: XposedModuleInterface.PackageReadyParam) {
-        // 1. Hunter Hook: BitmapFactory (Universal - Semua Versi Android)
+        // 1. Hunter Hook: BitmapFactory (Universal)
         installBitmapHunter()
 
         // 2. Modern Hooks: Hanya untuk Android 12+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (Build.VERSION.SDK_INT >= 31) {
             modernInjector.install(param)
         }
     }
 
     fun installAndroid16UIHooks(param: XposedModuleInterface.PackageReadyParam) {
-        // Nama method dipertahankan agar XCamModule tidak perlu dirubah drastis.
-        // Redirect ke modern injector jika OS mendukung.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (Build.VERSION.SDK_INT >= 31) {
             modernInjector.install(param)
         }
     }

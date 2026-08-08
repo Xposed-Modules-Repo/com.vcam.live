@@ -9,7 +9,6 @@ import android.media.MediaPlayer
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import android.view.SurfaceHolder
@@ -20,7 +19,7 @@ import io.github.libxposed.api.XposedModuleInterface
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "v17.0-architectural-separation"
+    private val xcamVersion = "v17.5-stable"
 
     var mediaPath: String? = null
     var isMirrored = false
@@ -42,10 +41,9 @@ class XCamModule : XposedModule() {
 
     private var c1MediaPlayer: MediaPlayer? = null
     private var c1Surface: Surface? = null
-
     private var lastST: SurfaceTexture? = null
-    private var lastHolder: SurfaceHolder? = null
     private var lastModernSurface: Surface? = null
+    private var lastHolder: SurfaceHolder? = null
 
     private var dummyST: SurfaceTexture? = null
     private var dummySurface: Surface? = null
@@ -62,7 +60,7 @@ class XCamModule : XposedModule() {
     fun triggerCaptureState() {
         printLog("Capture pulse detected")
         isCapturing = true
-        refreshSettings()
+        mContext?.let { refreshSettings(it) }
         uiHandler.removeCallbacksAndMessages(null)
         uiHandler.postDelayed({
             isCapturing = false
@@ -98,28 +96,29 @@ class XCamModule : XposedModule() {
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
         super.onPackageReady(param)
-        val currentProcess = getProcessNameSafe()
+        val processName = getProcessNameStrict()
         if (param.packageName == "com.hazbu.xcam") {
             hookManagerApp(param)
             return
         }
-        if (!currentProcess.contains(param.packageName)) return
+        
+        if (param.packageName != processName) return
         if (hooksInstalled) return
         hooksInstalled = true
 
         clearPreviewSurfaces()
-        printLog("STARTING ENGINE v17.0 IN: $currentProcess")
+        printLog(">>> ACTIVE IN: $processName (API ${Build.VERSION.SDK_INT}) <<<")
         hookContextInit()
+        
         injectors.installLegacyHooks(param)
         injectors.installCamera1Hooks(param)
         injectors.installUniversalCaptureHooks(param)
         injectors.installAndroid16UIHooks(param)
     }
 
-    private fun getProcessNameSafe(): String {
+    private fun getProcessNameStrict(): String {
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) Application.getProcessName()
-            else java.io.File("/proc/self/cmdline").readText().trim { it <= ' ' }
+            java.io.File("/proc/self/cmdline").readText().trim { it <= ' ' }
         } catch (_: Exception) { "" }
     }
 
@@ -127,7 +126,7 @@ class XCamModule : XposedModule() {
         try {
             val clazz = param.classLoader.loadClass("com.hazbu.xcam.MainActivity")
             hook(clazz.getDeclaredMethod("checkSelfActive")).intercept { true }
-        } catch (_: Throwable) {}
+        } catch (e: Throwable) {}
     }
 
     @SuppressLint("PrivateApi")
@@ -135,37 +134,50 @@ class XCamModule : XposedModule() {
         try {
             val attachMethod = Class.forName("android.content.ContextWrapper")
                 .getDeclaredMethod("attachBaseContext", Context::class.java)
+
             hook(attachMethod).intercept { chain ->
                 val result = chain.proceed()
                 if (!isInitialized) {
                     mContext = chain.thisObject as? Context
-                    refreshSettings()
+                    mContext?.let { refreshSettings(it) }
                     isInitialized = true
                 }
                 result
             }
-        } catch (_: Throwable) {}
+        } catch (e: Exception) {
+            printLog("Context hook failure", e)
+        }
     }
 
+    /**
+     * CLEANER STOP LOGIC (Anti IllegalStateException)
+     */
     fun stopCamera1Engine() {
         try {
             c1MediaPlayer?.let { player ->
-                try { player.setSurface(null) } catch (_: Throwable) {}
-                try { if (player.isPlaying) player.stop() } catch (_: Throwable) {}
-                try { player.release() } catch (_: Throwable) {}
+                if (player.isPlaying) player.stop()
+                player.reset()
+                player.release()
             }
         } catch (_: Throwable) {}
         c1MediaPlayer = null
+        
+        try { c1Surface?.release() } catch (_: Throwable) {}
         c1Surface = null
+
         lastST = null
         lastHolder = null
         lastModernSurface = null
     }
 
+    /**
+     * METHOD 1: For Legacy Camera2 (Renderer)
+     */
     fun handlePreview(width: Int, height: Int): Boolean {
         val path = mediaPath ?: return false
         if (!path.lowercase().endsWith(".mp4")) return false
         val context = mContext ?: return false
+        
         return try {
             if (xRenderer == null || xRenderer?.currentPath != path) {
                 xRenderer?.release()
@@ -175,13 +187,55 @@ class XCamModule : XposedModule() {
         } catch (_: Throwable) { false }
     }
 
+    /**
+     * METHOD 2: For Camera1 (MediaPlayer Direct) - Synchronous
+     */
     fun handleCamera1Preview(st: SurfaceTexture) {
+        val path = mediaPath ?: return
+        val context = mContext ?: return
+        
         if (st == lastST && c1MediaPlayer?.isPlaying == true) return
         lastST = st
+
+        try {
+            printLog("Starting Direct Injection (Method 2)")
+            stopCamera1Engine() 
+            c1Surface = Surface(st)
+            
+            if (path.lowercase().endsWith(".mp4")) {
+                c1MediaPlayer = MediaPlayer().apply {
+                    setDataSource(context, path.toUri())
+                    setSurface(c1Surface)
+                    isLooping = true
+                    prepareAsync()
+                    setOnPreparedListener { it.start() }
+                    setOnErrorListener { _, _, _ -> stopCamera1Engine(); true }
+                }
+            } else {
+                val bitmap = context.contentResolver.openInputStream(path.toUri())?.use { BitmapFactory.decodeStream(it) }
+                bitmap?.let {
+                    val canvas = c1Surface?.lockCanvas(null)
+                    canvas?.drawBitmap(it, null, android.graphics.Rect(0, 0, canvas.width, canvas.height), null)
+                    c1Surface?.unlockCanvasAndPost(canvas)
+                    it.recycle()
+                }
+            }
+        } catch (e: Exception) {
+            printLog("Method 2 fatal error", e)
+        }
+    }
+
+    /**
+     * MODERN ASYNC PATH (Android 12+)
+     */
+    fun handleModernPreview(surface: Surface) {
+        if (surface == lastModernSurface && c1MediaPlayer?.isPlaying == true) return
+        lastModernSurface = surface
         uiHandler.post {
+            if (!surface.isValid) return@post
             val context = mContext ?: return@post
             val path = mediaPath ?: return@post
-            injectToSurface(Surface(st), context, path)
+            injectToSurface(surface, context, path)
         }
     }
 
@@ -196,22 +250,11 @@ class XCamModule : XposedModule() {
         }
     }
 
-    fun handleModernPreview(surface: Surface) {
-        if (surface == lastModernSurface && c1MediaPlayer?.isPlaying == true) return
-        lastModernSurface = surface
-        uiHandler.post {
-            if (!surface.isValid) return@post
-            val context = mContext ?: return@post
-            val path = mediaPath ?: return@post
-            injectToSurface(surface, context, path)
-        }
-    }
-
     private fun injectToSurface(surface: Surface, context: Context, path: String) {
         if (!surface.isValid) return
         try {
             stopCamera1Engine()
-            SystemClock.sleep(50)
+            android.os.SystemClock.sleep(50)
             if (!surface.isValid) return
             c1Surface = surface
             c1MediaPlayer = MediaPlayer().apply {
@@ -219,27 +262,26 @@ class XCamModule : XposedModule() {
                 setSurface(surface)
                 isLooping = true
                 setOnPreparedListener {
-                    try { it.start(); printLog("xCam Engine Running") } catch (_: Throwable) {}
+                    try { it.start(); printLog("Modern Engine Running") } catch (_: Throwable) {}
                 }
                 setOnErrorListener { _, what, extra ->
-                    printLog("xCam Player Error: $what, $extra")
+                    printLog("Modern Player Error: $what, $extra")
                     stopCamera1Engine(); true
                 }
                 prepareAsync()
             }
         } catch (e: Throwable) {
-            printLog("Surface Injection Error", e)
+            printLog("Modern Surface Injection Error", e)
         }
     }
 
     fun getDummyST(): SurfaceTexture {
         if (dummyST == null) {
-            dummyST = SurfaceTexture(0).apply {
+            dummyST = SurfaceTexture(999).apply {
                 setOnFrameAvailableListener {
-                    try { updateTexImage() } catch (_: Throwable) {}
+                    try { updateTexImage() } catch (_: Exception) {}
                 }
             }
-            try { dummyST?.detachFromGLContext() } catch (_: Throwable) {}
         }
         return dummyST!!
     }
@@ -259,17 +301,17 @@ class XCamModule : XposedModule() {
         } catch (_: Throwable) { null }
     }
 
-    private fun refreshSettings() {
+    private fun refreshSettings(context: Context) {
         try {
             val uri = "content://$AUTHORITY".toUri()
-            mContext?.contentResolver?.query(uri, null, null, null, null)?.use { cursor ->
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     mediaPath = cursor.getString(0)
                     isMirrored = cursor.getString(2) == "1"
                     rotationAngle = cursor.getString(3).toIntOrNull() ?: 0
-                    printLog("Settings synced: $mediaPath")
+                    printLog("Settings Sync: $mediaPath")
                 }
             }
-        } catch (_: Throwable) {}
+        } catch (_: Exception) {}
     }
 }
