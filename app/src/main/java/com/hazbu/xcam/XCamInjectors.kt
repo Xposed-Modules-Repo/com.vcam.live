@@ -3,7 +3,6 @@ package com.hazbu.xcam
 import android.graphics.SurfaceTexture
 import android.view.Surface
 import android.view.SurfaceHolder
-import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
 
 class XCamInjectors(private val module: XCamModule) {
@@ -43,56 +42,37 @@ class XCamInjectors(private val module: XCamModule) {
         } catch (e: Throwable) {}
     }
 
-    fun installUniversalDiscoveryHooks(param: XposedModuleInterface.PackageReadyParam) {
-        // 1. Camera1 Discovery (Classic)
+    fun installCamera1Hooks(param: XposedModuleInterface.PackageReadyParam) {
         try {
             val cameraClass = param.classLoader.loadClass("android.hardware.Camera")
             
-            val setPreviewDisplay = cameraClass.getDeclaredMethod("setPreviewDisplay", SurfaceHolder::class.java)
-            module.hook(setPreviewDisplay).intercept { chain ->
-                module.printLog("Camera1 Discovery: setPreviewDisplay detected (SurfaceView path)")
-                chain.proceed()
-            }
-
             val setPreviewTexture = cameraClass.getDeclaredMethod("setPreviewTexture", SurfaceTexture::class.java)
             module.hook(setPreviewTexture).intercept { chain ->
-                module.printLog("Camera1 Discovery: setPreviewTexture detected (TextureView path)")
+                val originalST = chain.args[0] as? SurfaceTexture
+                if (originalST != null && module.mediaPath != null) {
+                    module.printLog("Camera1 Hijack: Preparing redirection")
+                    
+                    // Gunakan Dummy SurfaceTexture tetap (Singleton)
+                    val newArgs = chain.args.toTypedArray()
+                    newArgs[0] = module.getDummyST()
+                    
+                    module.handleCamera1Preview(originalST)
+                    return@intercept chain.proceed(newArgs)
+                }
                 chain.proceed()
             }
-        } catch (e: Throwable) {}
 
-        // 2. Camera2 Modern Discovery
-        try {
-            val managerClass = param.classLoader.loadClass("android.hardware.camera2.CameraManager")
-            val openCamera = managerClass.getDeclaredMethods().find { it.name == "openCamera" && it.parameterTypes.size >= 3 }
-            openCamera?.let { method ->
+            val takePicture = cameraClass.getDeclaredMethods().find { it.name == "takePicture" && it.parameterTypes.size >= 4 }
+            takePicture?.let { method ->
                 module.hook(method).intercept { chain ->
-                    module.printLog("Camera2 Modern: openCamera detected for ID ${chain.args[0]}")
+                    module.printLog("Camera1 Hijack: Captured via takePicture")
                     chain.proceed()
                 }
             }
-
-            val builderClass = param.classLoader.loadClass("android.hardware.camera2.CaptureRequest\$Builder")
-            val addTarget = builderClass.getDeclaredMethod("addTarget", Surface::class.java)
-            module.hook(addTarget).intercept { chain ->
-                module.printLog("Camera2 Modern: addTarget detected (Surface: ${chain.args[0]})")
-                chain.proceed()
-            }
-        } catch (e: Throwable) {}
-
-        // 3. SurfaceTexture Sync (The Ultimate Gate)
-        try {
-            val stClass = SurfaceTexture::class.java
-            val updateTexImage = stClass.getDeclaredMethod("updateTexImage")
-            var lastLog = 0L
-            module.hook(updateTexImage).intercept { chain ->
-                val now = System.currentTimeMillis()
-                if (now - lastLog > 5000) { // Log every 5 seconds to avoid flooding
-                    module.printLog("SurfaceTexture: updateTexImage is being called frequently (UI is active)")
-                    lastLog = now
-                }
-                chain.proceed()
-            }
-        } catch (e: Throwable) {}
+            
+            module.printLog("Camera1 Hooks: v7.4 Stable Ready")
+        } catch (e: Throwable) {
+            module.printLog("Camera1 Hook failed: ${e.message}")
+        }
     }
 }

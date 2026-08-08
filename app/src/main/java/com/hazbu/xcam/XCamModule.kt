@@ -2,7 +2,11 @@ package com.hazbu.xcam
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.BitmapFactory
+import android.graphics.SurfaceTexture
+import android.media.MediaPlayer
 import android.util.Log
+import android.view.Surface
 import androidx.core.net.toUri
 import com.hazbu.xcam.Constants.AUTHORITY
 import io.github.libxposed.api.XposedModule
@@ -10,16 +14,22 @@ import io.github.libxposed.api.XposedModuleInterface
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "v7.1-universal-discovery"
+    private val xcamVersion = "v7.5-tiktok-loop-fix"
 
     var mediaPath: String? = null
     var isMirrored = false
     var rotationAngle = 0
     private var isInitialized = false
     private var mContext: Context? = null
+    private var hooksInstalled = false // Anti-loop flag
     
     private var xRenderer: XCamRenderer? = null
     private val injectors = XCamInjectors(this)
+
+    private var c1MediaPlayer: MediaPlayer? = null
+    private var c1Surface: Surface? = null
+    private var lastST: SurfaceTexture? = null
+    private var dummyST: SurfaceTexture? = null
 
     fun printLog(msg: String, tr: Throwable? = null) {
         val fullMsg = "[$xcamVersion] $msg"
@@ -29,22 +39,34 @@ class XCamModule : XposedModule() {
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
         super.onPackageReady(param)
-        printLog(">>> MODULE ACTIVE IN: ${param.packageName} (Process: ${getProcessName()}) <<<")
-
+        
+        val processName = getProcessName()
+        
+        // Proteksi 1: Hanya jalankan di paket yang relevan
         if (param.packageName == "com.hazbu.xcam") {
             hookManagerApp(param)
-        } else {
-            hookContextInit()
-            injectors.installLegacyHooks(param)
-            injectors.installUniversalDiscoveryHooks(param)
+            return
         }
+
+        // Proteksi 2: Hanya aktif di proses utama (Bukan WebView)
+        if (param.packageName != processName) {
+            return 
+        }
+
+        // Proteksi 3: Jangan pasang hook dua kali
+        if (hooksInstalled) return
+        hooksInstalled = true
+
+        printLog(">>> INSTALLING HOOKS IN: $processName <<<")
+        hookContextInit()
+        injectors.installLegacyHooks(param)
+        injectors.installCamera1Hooks(param)
     }
 
     private fun getProcessName(): String {
         return try {
-            val file = java.io.File("/proc/self/cmdline")
-            file.readText().trim { it <= ' ' }
-        } catch (e: Exception) { "unknown" }
+            java.io.File("/proc/self/cmdline").readText().trim { it <= ' ' }
+        } catch (e: Exception) { "" }
     }
 
     private fun hookManagerApp(param: XposedModuleInterface.PackageReadyParam) {
@@ -68,7 +90,6 @@ class XCamModule : XposedModule() {
                     mContext = chain.thisObject as? Context
                     mContext?.let { refreshSettings(it) }
                     isInitialized = true
-                    printLog("Target Context initialized. Current Media: $mediaPath")
                 }
                 result
             }
@@ -87,6 +108,54 @@ class XCamModule : XposedModule() {
             }
             xRenderer?.draw(width, height) ?: false
         } catch (e: Throwable) { false }
+    }
+
+    fun handleCamera1Preview(st: SurfaceTexture) {
+        val path = mediaPath ?: return
+        val context = mContext ?: return
+        
+        if (st == lastST && c1MediaPlayer?.isPlaying == true) return
+        lastST = st
+
+        printLog("Camera1: Redirecting to Surface @${st.hashCode()}")
+        
+        try {
+            // Reuse Player jika memungkinkan, tapi TikTok sering minta refresh Surface
+            c1MediaPlayer?.stop()
+            c1MediaPlayer?.release()
+            c1Surface?.release()
+
+            c1Surface = Surface(st)
+            
+            if (path.lowercase().endsWith(".mp4")) {
+                c1MediaPlayer = MediaPlayer().apply {
+                    setDataSource(context, path.toUri())
+                    setSurface(c1Surface)
+                    isLooping = true
+                    prepareAsync()
+                    setOnPreparedListener { it.start() }
+                    setOnErrorListener { _, what, extra ->
+                        printLog("C1 Error: $what, $extra")
+                        false
+                    }
+                }
+            } else {
+                val bitmap = context.contentResolver.openInputStream(path.toUri())?.use { BitmapFactory.decodeStream(it) }
+                bitmap?.let {
+                    val canvas = c1Surface?.lockCanvas(null)
+                    canvas?.drawBitmap(it, null, android.graphics.Rect(0, 0, canvas.width, canvas.height), null)
+                    c1Surface?.unlockCanvasAndPost(canvas)
+                    it.recycle()
+                }
+            }
+        } catch (e: Exception) {
+            printLog("C1 fatal error", e)
+        }
+    }
+
+    fun getDummyST(): SurfaceTexture {
+        if (dummyST == null) dummyST = SurfaceTexture(10)
+        return dummyST!!
     }
 
     fun handleCapture(width: Int, height: Int): ByteArray? {
