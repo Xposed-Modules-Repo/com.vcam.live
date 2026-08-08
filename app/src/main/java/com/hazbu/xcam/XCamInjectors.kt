@@ -1,6 +1,9 @@
 package com.hazbu.xcam
 
 import android.graphics.SurfaceTexture
+import android.view.TextureView
+import android.view.SurfaceView
+import android.view.SurfaceHolder
 import io.github.libxposed.api.XposedModuleInterface
 
 class XCamInjectors(private val module: XCamModule) {
@@ -15,7 +18,6 @@ class XCamInjectors(private val module: XCamModule) {
                 val height = (chain.args[2] as? Number)?.toInt() ?: 0
                 if (module.handlePreview(width, height)) null else chain.proceed()
             }
-            module.printLog("Legacy Preview Hook: OK")
         } catch (e: Throwable) {}
 
         try {
@@ -38,14 +40,12 @@ class XCamInjectors(private val module: XCamModule) {
                     chain.proceed()
                 }
             }
-            module.printLog("Legacy Capture Hook: OK")
         } catch (e: Throwable) {}
     }
 
     fun installCamera1Hooks(param: XposedModuleInterface.PackageReadyParam) {
         try {
             val cameraClass = param.classLoader.loadClass("android.hardware.Camera")
-            
             val setPreviewTexture = cameraClass.getDeclaredMethod("setPreviewTexture", SurfaceTexture::class.java)
             module.hook(setPreviewTexture).intercept { chain ->
                 val originalST = chain.args[0] as? SurfaceTexture
@@ -57,18 +57,40 @@ class XCamInjectors(private val module: XCamModule) {
                 }
                 chain.proceed()
             }
+        } catch (e: Throwable) {}
+    }
 
-            val takePicture = cameraClass.getDeclaredMethods().find { it.name == "takePicture" && it.parameterTypes.size >= 4 }
-            takePicture?.let { method ->
-                module.hook(method).intercept { chain ->
-                    module.printLog("Camera1 Capture Triggered")
-                    chain.proceed()
+    fun installAndroid16UIHooks(param: XposedModuleInterface.PackageReadyParam) {
+        try {
+            val textureViewClass = param.classLoader.loadClass("android.view.TextureView")
+            val setSurfaceTexture = textureViewClass.getDeclaredMethod("setSurfaceTexture", SurfaceTexture::class.java)
+            module.hook(setSurfaceTexture).intercept { chain ->
+                val st = chain.args[0] as? SurfaceTexture
+                if (st != null && module.mediaPath != null) {
+                    module.handleCamera1Preview(st)
                 }
+                chain.proceed()
             }
-            
-            module.printLog("Camera1 Hooks: OK")
-        } catch (e: Throwable) {
-            module.printLog("Camera1 Hooks failed")
-        }
+
+            val surfaceViewClass = param.classLoader.loadClass("android.view.SurfaceView")
+            val getHolder = surfaceViewClass.getDeclaredMethod("getHolder")
+            module.hook(getHolder).intercept { chain ->
+                val holder = chain.proceed() as? SurfaceHolder
+                holder?.addCallback(object : SurfaceHolder.Callback {
+                    override fun surfaceCreated(h: SurfaceHolder) {
+                        module.handleSurfaceViewPreview(h)
+                    }
+                    override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, h2: Int) {
+                        // Stabilkan transisi capture: panggil handle hanya jika benar-benar perlu
+                        module.handleSurfaceViewPreview(h)
+                    }
+                    override fun surfaceDestroyed(h: SurfaceHolder) {
+                        module.stopCamera1Engine()
+                    }
+                })
+                holder
+            }
+            module.printLog("Android 16 Stability Hooks: INSTALLED")
+        } catch (e: Throwable) {}
     }
 }
