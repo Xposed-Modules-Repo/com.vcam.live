@@ -14,8 +14,6 @@ import io.github.libxposed.api.XposedModuleInterface
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "xCam"
-
     var mediaPath: String? = null
     var isMirrored = false
     var rotationAngle = 0
@@ -26,16 +24,14 @@ class XCamModule : XposedModule() {
     private var xRenderer: XCamRenderer? = null
     private val injectors = XCamInjectors(this)
 
-    // Camera1 Engine State
     private var c1MediaPlayer: MediaPlayer? = null
     private var c1Surface: Surface? = null
     private var lastST: SurfaceTexture? = null
     private var dummyST: SurfaceTexture? = null
 
     fun printLog(msg: String, tr: Throwable? = null) {
-        val fullMsg = "[$xcamVersion] $msg"
-        log(PRIORITY_HIGHEST, "xCam", fullMsg)
-        if (tr != null) Log.e("xCam", fullMsg, tr) else Log.e("xCam", fullMsg)
+        log(PRIORITY_HIGHEST, "xCam", msg)
+        if (tr != null) Log.e("xCam", msg, tr) else Log.e("xCam", msg)
     }
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
@@ -51,7 +47,7 @@ class XCamModule : XposedModule() {
         if (hooksInstalled) return
         hooksInstalled = true
 
-        printLog(">>> INJECTING UNIVERSAL ENGINE INTO: $processName <<<")
+        printLog(">>> ACTIVE IN: $processName <<<")
         hookContextInit()
         injectors.installLegacyHooks(param)
         injectors.installCamera1Hooks(param)
@@ -60,7 +56,7 @@ class XCamModule : XposedModule() {
     private fun getProcessName(): String {
         return try {
             java.io.File("/proc/self/cmdline").readText().trim { it <= ' ' }
-        } catch (e: Exception) { "" }
+        } catch (_: Exception) { "" }
     }
 
     private fun hookManagerApp(param: XposedModuleInterface.PackageReadyParam) {
@@ -103,8 +99,6 @@ class XCamModule : XposedModule() {
         } catch (_: Exception) {}
     }
 
-    // --- INJECTOR HANDLERS ---
-
     fun handlePreview(width: Int, height: Int): Boolean {
         val path = mediaPath ?: return false
         val context = mContext ?: return false
@@ -115,7 +109,7 @@ class XCamModule : XposedModule() {
                 xRenderer = XCamRenderer(context, path, isMirrored, rotationAngle) { printLog(it) }
             }
             xRenderer?.draw(width, height) ?: false
-        } catch (e: Throwable) { false }
+        } catch (_: Throwable) { false }
     }
 
     fun handleCamera1Preview(st: SurfaceTexture) {
@@ -125,8 +119,6 @@ class XCamModule : XposedModule() {
         if (st == lastST && c1MediaPlayer?.isPlaying == true) return
         lastST = st
 
-        printLog("Active Session: Camera1 Redirect (ST:@${st.hashCode()})")
-        
         try {
             stopCamera1Engine() 
             c1Surface = Surface(st)
@@ -150,12 +142,20 @@ class XCamModule : XposedModule() {
                 }
             }
         } catch (e: Exception) {
-            printLog("Camera1 Engine Error", e)
+            printLog("C1 fatal error", e)
         }
     }
 
     fun getDummyST(): SurfaceTexture {
-        if (dummyST == null) dummyST = SurfaceTexture(10)
+        if (dummyST == null) {
+            dummyST = SurfaceTexture(999).apply {
+                setOnFrameAvailableListener {
+                    try {
+                        updateTexImage()
+                    } catch (_: Exception) {}
+                }
+            }
+        }
         return dummyST!!
     }
 
