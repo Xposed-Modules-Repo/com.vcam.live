@@ -20,7 +20,7 @@ import io.github.libxposed.api.XposedModuleInterface
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "v16.4-stable"
+    private val xcamVersion = "v17.0-architectural-separation"
 
     var mediaPath: String? = null
     var isMirrored = false
@@ -31,10 +31,7 @@ class XCamModule : XposedModule() {
     private var hooksInstalled = false
 
     var previewSwapped = false
-    
-    // Registry untuk melacak Surface
     private val previewSurfaceHashes = mutableSetOf<Int>()
-    private val captureSurfaceHashes = mutableSetOf<Int>()
 
     @Volatile
     private var isCapturing = false
@@ -67,16 +64,11 @@ class XCamModule : XposedModule() {
         isCapturing = true
         refreshSettings()
         uiHandler.removeCallbacksAndMessages(null)
-        // Window 3 detik untuk membiarkan data asli mengalir ke Hunter
         uiHandler.postDelayed({
             isCapturing = false
             printLog("Capture pulse ended")
         }, 3000)
     }
-
-    // =========================================================
-    // SURFACE REGISTRY
-    // =========================================================
 
     fun registerPreviewSurface(surface: Surface) {
         if (surface.isValid) {
@@ -87,26 +79,10 @@ class XCamModule : XposedModule() {
         }
     }
 
-    fun markAsCaptureSurface(surface: Surface) {
-        if (surface.isValid) {
-            val hash = surface.hashCode()
-            if (captureSurfaceHashes.add(hash)) {
-                printLog("Surface marked as CAPTURE (Safe Path): $hash")
-            }
-        }
-    }
-
-    fun isCaptureSurface(surface: Surface?): Boolean {
-        if (surface == null) return false
-        return captureSurfaceHashes.contains(surface.hashCode())
-    }
-
     fun isPreviewSurface(surface: Surface?): Boolean {
         if (surface == null) return false
         val hash = surface.hashCode()
         if (previewSurfaceHashes.contains(hash)) return true
-        
-        // Dynamic discovery: Jika mengandung SurfaceTexture, kemungkinan besar preview
         if (surface.toString().contains("SurfaceTexture")) {
             registerPreviewSurface(surface)
             return true
@@ -116,7 +92,6 @@ class XCamModule : XposedModule() {
 
     fun clearPreviewSurfaces() {
         previewSurfaceHashes.clear()
-        captureSurfaceHashes.clear()
         previewSwapped = false
     }
 
@@ -133,7 +108,7 @@ class XCamModule : XposedModule() {
         hooksInstalled = true
 
         clearPreviewSurfaces()
-        printLog("STARTING ENGINE v16.4: $currentProcess")
+        printLog("STARTING ENGINE v17.0 IN: $currentProcess")
         hookContextInit()
         injectors.installLegacyHooks(param)
         injectors.installCamera1Hooks(param)
@@ -145,14 +120,14 @@ class XCamModule : XposedModule() {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) Application.getProcessName()
             else java.io.File("/proc/self/cmdline").readText().trim { it <= ' ' }
-        } catch (e: Exception) { "" }
+        } catch (_: Exception) { "" }
     }
 
     private fun hookManagerApp(param: XposedModuleInterface.PackageReadyParam) {
         try {
             val clazz = param.classLoader.loadClass("com.hazbu.xcam.MainActivity")
             hook(clazz.getDeclaredMethod("checkSelfActive")).intercept { true }
-        } catch (e: Throwable) {}
+        } catch (_: Throwable) {}
     }
 
     @SuppressLint("PrivateApi")
@@ -169,7 +144,7 @@ class XCamModule : XposedModule() {
                 }
                 result
             }
-        } catch (e: Throwable) {}
+        } catch (_: Throwable) {}
     }
 
     fun stopCamera1Engine() {
@@ -188,18 +163,16 @@ class XCamModule : XposedModule() {
     }
 
     fun handlePreview(width: Int, height: Int): Boolean {
-        if (isCapturing) return false
         val path = mediaPath ?: return false
         if (!path.lowercase().endsWith(".mp4")) return false
         val context = mContext ?: return false
         return try {
             if (xRenderer == null || xRenderer?.currentPath != path) {
-                printLog("PREVIEW: creating XCamRenderer")
                 xRenderer?.release()
                 xRenderer = XCamRenderer(context, path, isMirrored, rotationAngle) { printLog(it) }
             }
             xRenderer?.draw(width, height) ?: false
-        } catch (e: Throwable) { false }
+        } catch (_: Throwable) { false }
     }
 
     fun handleCamera1Preview(st: SurfaceTexture) {
@@ -246,7 +219,7 @@ class XCamModule : XposedModule() {
                 setSurface(surface)
                 isLooping = true
                 setOnPreparedListener {
-                    try { it.start(); printLog("xCam Video Engine Running") } catch (e: Throwable) {}
+                    try { it.start(); printLog("xCam Engine Running") } catch (_: Throwable) {}
                 }
                 setOnErrorListener { _, what, extra ->
                     printLog("xCam Player Error: $what, $extra")
@@ -261,7 +234,7 @@ class XCamModule : XposedModule() {
 
     fun getDummyST(): SurfaceTexture {
         if (dummyST == null) {
-            dummyST = SurfaceTexture(999).apply {
+            dummyST = SurfaceTexture(0).apply {
                 setOnFrameAvailableListener {
                     try { updateTexImage() } catch (_: Throwable) {}
                 }
@@ -283,7 +256,7 @@ class XCamModule : XposedModule() {
         val context = mContext ?: return null
         return try {
             XCamCapture.createJpeg(context, path, width, height, rotationAngle, isMirrored) { printLog(it) }
-        } catch (e: Throwable) { null }
+        } catch (_: Throwable) { null }
     }
 
     private fun refreshSettings() {
@@ -297,6 +270,6 @@ class XCamModule : XposedModule() {
                     printLog("Settings synced: $mediaPath")
                 }
             }
-        } catch (e: Throwable) {}
+        } catch (_: Throwable) {}
     }
 }
