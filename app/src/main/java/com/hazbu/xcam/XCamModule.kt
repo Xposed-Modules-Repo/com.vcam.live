@@ -2,57 +2,49 @@ package com.hazbu.xcam
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix as AndroidMatrix
-import android.graphics.SurfaceTexture
-import android.media.MediaMetadataRetriever
-import android.media.MediaPlayer
-import android.opengl.*
 import android.util.Log
-import android.view.Surface
 import androidx.core.net.toUri
 import com.hazbu.xcam.Constants.AUTHORITY
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
-import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.FloatBuffer
-import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.max
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "v6.1-perfect-alignment"
+    private val xcamVersion = "v7.1-universal-discovery"
 
-    private var mediaPath: String? = null
-    private var isMirrored = false
-    private var rotationAngle = 0
+    var mediaPath: String? = null
+    var isMirrored = false
+    var rotationAngle = 0
     private var isInitialized = false
     private var mContext: Context? = null
     
     private var xRenderer: XCamRenderer? = null
+    private val injectors = XCamInjectors(this)
 
-    private fun printLog(msg: String, tr: Throwable? = null) {
+    fun printLog(msg: String, tr: Throwable? = null) {
         val fullMsg = "[$xcamVersion] $msg"
         log(PRIORITY_HIGHEST, "xCam", fullMsg)
-        if (tr != null) {
-            Log.e("xCam", fullMsg, tr)
-        } else {
-            Log.e("xCam", fullMsg)
-        }
+        if (tr != null) Log.e("xCam", fullMsg, tr) else Log.e("xCam", fullMsg)
     }
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
         super.onPackageReady(param)
-        printLog(">>> MODULE ACTIVE IN: ${param.packageName} <<<")
+        printLog(">>> MODULE ACTIVE IN: ${param.packageName} (Process: ${getProcessName()}) <<<")
 
         if (param.packageName == "com.hazbu.xcam") {
             hookManagerApp(param)
         } else {
-            hookCameraFeeds(param)
+            hookContextInit()
+            injectors.installLegacyHooks(param)
+            injectors.installUniversalDiscoveryHooks(param)
         }
+    }
+
+    private fun getProcessName(): String {
+        return try {
+            val file = java.io.File("/proc/self/cmdline")
+            file.readText().trim { it <= ' ' }
+        } catch (e: Exception) { "unknown" }
     }
 
     private fun hookManagerApp(param: XposedModuleInterface.PackageReadyParam) {
@@ -65,7 +57,7 @@ class XCamModule : XposedModule() {
     }
 
     @SuppressLint("PrivateApi")
-    private fun hookCameraFeeds(param: XposedModuleInterface.PackageReadyParam) {
+    private fun hookContextInit() {
         try {
             val attachMethod = Class.forName("android.content.ContextWrapper")
                 .getDeclaredMethod("attachBaseContext", Context::class.java)
@@ -76,146 +68,31 @@ class XCamModule : XposedModule() {
                     mContext = chain.thisObject as? Context
                     mContext?.let { refreshSettings(it) }
                     isInitialized = true
-                    printLog("Context ready. Media: $mediaPath")
+                    printLog("Target Context initialized. Current Media: $mediaPath")
                 }
                 result
             }
-
-            hookLegacyRenderer(param)
-            hookCapturePath(param)
-
         } catch (e: Exception) {
-            printLog("hookCameraFeeds failure", e)
+            printLog("Context hook failure", e)
         }
     }
 
-    private fun hookLegacyRenderer(param: XposedModuleInterface.PackageReadyParam) {
-        try {
-            val strClass = param.classLoader.loadClass("android.hardware.camera2.legacy.SurfaceTextureRenderer")
-            val drawFrame = strClass.getDeclaredMethod(
-                "drawFrame",
-                SurfaceTexture::class.java,
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType
-            )
-
-            hook(drawFrame).intercept { chain ->
-                val path = mediaPath
-                val context = mContext
-                
-                if (path.isNullOrEmpty() || context == null) {
-                    return@intercept chain.proceed()
-                }
-
-                try {
-                    val width = (chain.args[1] as? Number)?.toInt() ?: 0
-                    val height = (chain.args[2] as? Number)?.toInt() ?: 0
-
-                    if (xRenderer == null || xRenderer?.currentPath != path) {
-                        xRenderer?.release()
-                        xRenderer = XCamRenderer(context, path, isMirrored, rotationAngle, this)
-                    }
-
-                    val success = xRenderer?.draw(width, height) ?: false
-                    if (success) null else chain.proceed()
-                } catch (e: Throwable) {
-                    chain.proceed()
-                }
-            }
-            printLog("Renderer hook: OK")
-        } catch (e: Throwable) {
-            printLog("Renderer hook failed", e)
-        }
-    }
-
-    private fun hookCapturePath(param: XposedModuleInterface.PackageReadyParam) {
-        try {
-            val legacyDeviceClass = param.classLoader.loadClass("android.hardware.camera2.legacy.LegacyCameraDevice")
-            val produceFrame = legacyDeviceClass.getDeclaredMethods().find { 
-                it.name == "produceFrame" && it.parameterTypes.size == 5 && it.parameterTypes[1] == ByteArray::class.java 
-            }
-
-            if (produceFrame != null) {
-                hook(produceFrame).intercept { chain ->
-                    try {
-                        val path = mediaPath
-                        val context = mContext
-                        val width = (chain.args[2] as? Number)?.toInt() ?: 0
-                        val height = (chain.args[3] as? Number)?.toInt() ?: 0
-                        val format = (chain.args[4] as? Number)?.toInt() ?: 0
-
-                        if (format == 0x21 && !path.isNullOrEmpty() && context != null) {
-                            printLog("CAPTURE ALIGNING: ${width}x${height} (R: $rotationAngle, M: $isMirrored)")
-                            val replacement = createCaptureJpeg(context, path, width, height)
-                            if (replacement != null) {
-                                val newArgs = Array(chain.args.size) { i -> if (i == 1) replacement else chain.args[i] }
-                                return@intercept chain.proceed(newArgs)
-                            }
-                        }
-                    } catch (e: Throwable) {
-                        printLog("Capture injection failure", e)
-                    }
-                    chain.proceed()
-                }
-                printLog("Capture hook: OK")
-            }
-        } catch (e: Exception) {
-            printLog("Capture hook failed", e)
-        }
-    }
-
-    private fun createCaptureJpeg(context: Context, path: String, targetW: Int, targetH: Int): ByteArray? {
+    fun handlePreview(width: Int, height: Int): Boolean {
+        val path = mediaPath ?: return false
+        val context = mContext ?: return false
         return try {
-            val rawBitmap: Bitmap? = if (path.lowercase().endsWith(".mp4")) {
-                val retriever = MediaMetadataRetriever()
-                retriever.setDataSource(context, path.toUri())
-                val frame = retriever.getFrameAtTime(1000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                retriever.release()
-                frame
-            } else {
-                context.contentResolver.openInputStream(path.toUri())?.use { BitmapFactory.decodeStream(it) }
+            if (xRenderer == null || xRenderer?.currentPath != path) {
+                xRenderer?.release()
+                xRenderer = XCamRenderer(context, path, isMirrored, rotationAngle) { printLog(it) }
             }
+            xRenderer?.draw(width, height) ?: false
+        } catch (e: Throwable) { false }
+    }
 
-            if (rawBitmap == null) return null
-
-            // LOGIKA CENTER CROP AGAR TIDAK GEPENG
-            val sourceW = rawBitmap.width
-            val sourceH = rawBitmap.height
-            val sourceRatio = sourceW.toFloat() / sourceH
-            val targetRatio = targetW.toFloat() / targetH
-
-            var cropW = sourceW
-            var cropH = sourceH
-            var offsetX = 0
-            var offsetY = 0
-
-            if (sourceRatio > targetRatio) {
-                cropW = (sourceH * targetRatio).toInt()
-                offsetX = (sourceW - cropW) / 2
-            } else {
-                cropH = (sourceW / targetRatio).toInt()
-                offsetY = (sourceH - cropH) / 2
-            }
-
-            // Transformasi: Scale -> Rotate -> Mirror
-            val matrix = AndroidMatrix()
-            matrix.postScale(targetW.toFloat() / cropW, targetH.toFloat() / cropH)
-            if (rotationAngle != 0) matrix.postRotate(rotationAngle.toFloat())
-            if (isMirrored) matrix.postScale(-1f, 1f)
-
-            val finalBitmap = Bitmap.createBitmap(rawBitmap, offsetX, offsetY, cropW, cropH, matrix, true)
-            val out = ByteArrayOutputStream()
-            finalBitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
-            
-            if (rawBitmap != finalBitmap) rawBitmap.recycle()
-            finalBitmap.recycle()
-            
-            out.toByteArray()
-        } catch (e: Exception) {
-            printLog("createCaptureJpeg error", e)
-            null
-        }
+    fun handleCapture(width: Int, height: Int): ByteArray? {
+        val path = mediaPath ?: return null
+        val context = mContext ?: return null
+        return XCamCapture.createJpeg(context, path, width, height, rotationAngle, isMirrored) { printLog(it) }
     }
 
     private fun refreshSettings(context: Context) {
@@ -228,127 +105,6 @@ class XCamModule : XposedModule() {
                     rotationAngle = cursor.getString(3).toIntOrNull() ?: 0
                 }
             }
-        } catch (e: Exception) {
-            printLog("refreshSettings error", e)
-        }
-    }
-
-    class XCamRenderer(
-        private val context: Context,
-        val currentPath: String,
-        private val isMirrored: Boolean,
-        private val rotationAngle: Int,
-        private val module: XCamModule
-    ) {
-        private var program = 0
-        private var textureId = -1
-        private var isOES = false
-        private var surfaceTexture: SurfaceTexture? = null
-        private var mediaPlayer: MediaPlayer? = null
-        private val frameAvailable = AtomicBoolean(false)
-        private val mvpMatrix = FloatArray(16)
-        private val stMatrix = FloatArray(16)
-        private lateinit var vertexBuffer: FloatBuffer
-        private lateinit var texBuffer: FloatBuffer
-        private var mediaW = 0
-        private var mediaH = 0
-        private var initialized = false
-        private var setupAttempted = false
-
-        init {
-            Matrix.setIdentityM(stMatrix, 0)
-            Matrix.setIdentityM(mvpMatrix, 0)
-            vertexBuffer = ByteBuffer.allocateDirect(48).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
-                put(floatArrayOf(-1f, -1f, 0f, 1f, -1f, 0f, -1f, 1f, 0f, 1f, 1f, 0f)).position(0)
-            }
-            texBuffer = ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
-                put(floatArrayOf(0f, 0f, 1f, 0f, 0f, 1f, 1f, 1f)).position(0)
-            }
-        }
-
-        private fun setup() {
-            if (setupAttempted) return
-            setupAttempted = true
-            try {
-                if (currentPath.lowercase().endsWith(".mp4")) {
-                    isOES = true
-                    val tex = IntArray(1)
-                    GLES20.glGenTextures(1, tex, 0)
-                    textureId = tex[0]
-                    GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId)
-                    GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-                    GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-                    surfaceTexture = SurfaceTexture(textureId).apply { setOnFrameAvailableListener { frameAvailable.set(true) } }
-                    mediaPlayer = MediaPlayer().apply {
-                        setDataSource(context, currentPath.toUri())
-                        setSurface(Surface(surfaceTexture))
-                        isLooping = true
-                        setOnPreparedListener { mediaW = it.videoWidth; mediaH = it.videoHeight; it.start() }
-                        prepareAsync()
-                    }
-                } else {
-                    isOES = false
-                    val bitmap = context.contentResolver.openInputStream(currentPath.toUri())?.use { BitmapFactory.decodeStream(it) }
-                    if (bitmap != null) {
-                        mediaW = bitmap.width; mediaH = bitmap.height
-                        val tex = IntArray(1)
-                        GLES20.glGenTextures(1, tex, 0)
-                        textureId = tex[0]
-                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
-                        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-                        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-                        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
-                        bitmap.recycle()
-                    }
-                }
-                initShaders()
-                initialized = true
-            } catch (e: Exception) {
-                module.printLog("Renderer setup error", e)
-            }
-        }
-
-        private fun initShaders() {
-            val vs = "attribute vec4 aPosition; attribute vec2 aTextureCoord; varying vec2 vTextureCoord; uniform mat4 uSTMatrix; uniform mat4 uMVPMatrix; void main() { gl_Position = uMVPMatrix * aPosition; vTextureCoord = (uSTMatrix * vec4(aTextureCoord, 0.0, 1.0)).xy; }"
-            val fs = if (isOES) "#extension GL_OES_EGL_image_external : require\nprecision mediump float; varying vec2 vTextureCoord; uniform samplerExternalOES sTexture; void main() { gl_FragColor = texture2D(sTexture, vTextureCoord); }"
-            else "precision mediump float; varying vec2 vTextureCoord; uniform sampler2D sTexture; void main() { gl_FragColor = texture2D(sTexture, vTextureCoord); }"
-            program = GLES20.glCreateProgram().apply {
-                val vShader = GLES20.glCreateShader(GLES20.GL_VERTEX_SHADER).apply { GLES20.glShaderSource(this, vs); GLES20.glCompileShader(this) }
-                val fShader = GLES20.glCreateShader(GLES20.GL_FRAGMENT_SHADER).apply { GLES20.glShaderSource(this, fs); GLES20.glCompileShader(this) }
-                GLES20.glAttachShader(this, vShader); GLES20.glAttachShader(this, fShader); GLES20.glLinkProgram(this)
-            }
-        }
-
-        fun draw(viewportW: Int, viewportH: Int): Boolean {
-            if (!initialized) setup()
-            if (!initialized) return false
-            try {
-                if (isOES && frameAvailable.compareAndSet(true, false)) { surfaceTexture?.updateTexImage(); surfaceTexture?.getTransformMatrix(stMatrix) }
-                updateMVPMatrix(viewportW.toFloat(), viewportH.toFloat())
-                GLES20.glViewport(0, 0, viewportW, viewportH)
-                GLES20.glClearColor(0f, 0f, 0f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-                GLES20.glUseProgram(program)
-                val aPos = GLES20.glGetAttribLocation(program, "aPosition"); val aTex = GLES20.glGetAttribLocation(program, "aTextureCoord")
-                GLES20.glEnableVertexAttribArray(aPos); GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 12, vertexBuffer)
-                GLES20.glEnableVertexAttribArray(aTex); GLES20.glVertexAttribPointer(aTex, 2, GLES20.GL_FLOAT, false, 8, texBuffer)
-                GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program, "uMVPMatrix"), 1, false, mvpMatrix, 0)
-                GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program, "uSTMatrix"), 1, false, stMatrix, 0)
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(if (isOES) GLES11Ext.GL_TEXTURE_EXTERNAL_OES else GLES20.GL_TEXTURE_2D, textureId)
-                GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-                return true
-            } catch (e: Exception) { return false }
-        }
-
-        private fun updateMVPMatrix(viewW: Float, viewH: Float) {
-            if (mediaW <= 0 || mediaH <= 0) return
-            val effRatio = if (rotationAngle % 180 == 0) mediaW.toFloat() / mediaH else mediaH.toFloat() / mediaW
-            val dstRatio = viewW / viewH
-            Matrix.setIdentityM(mvpMatrix, 0)
-            if (effRatio > dstRatio) Matrix.scaleM(mvpMatrix, 0, effRatio / dstRatio, 1f, 1f) else Matrix.scaleM(mvpMatrix, 0, 1f, dstRatio / effRatio, 1f)
-            Matrix.rotateM(mvpMatrix, 0, -rotationAngle.toFloat(), 0f, 0f, 1f)
-            if (isMirrored) Matrix.scaleM(mvpMatrix, 0, -1f, 1f, 1f)
-        }
-
-        fun release() { try { mediaPlayer?.release(); surfaceTexture?.release(); GLES20.glDeleteProgram(program); GLES20.glDeleteTextures(1, intArrayOf(textureId), 0) } catch (_: Exception) {} }
+        } catch (_: Exception) {}
     }
 }
