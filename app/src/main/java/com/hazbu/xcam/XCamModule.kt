@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix as AndroidMatrix
 import android.graphics.SurfaceTexture
 import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
@@ -19,10 +20,11 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.max
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "v5.9.2-final-body-fix"
+    private val xcamVersion = "v6.1-perfect-alignment"
 
     private var mediaPath: String? = null
     private var isMirrored = false
@@ -74,7 +76,7 @@ class XCamModule : XposedModule() {
                     mContext = chain.thisObject as? Context
                     mContext?.let { refreshSettings(it) }
                     isInitialized = true
-                    printLog("Target context initialized. Media: $mediaPath")
+                    printLog("Context ready. Media: $mediaPath")
                 }
                 result
             }
@@ -83,7 +85,7 @@ class XCamModule : XposedModule() {
             hookCapturePath(param)
 
         } catch (e: Exception) {
-            printLog("hookCameraFeeds critical failure", e)
+            printLog("hookCameraFeeds failure", e)
         }
     }
 
@@ -111,24 +113,19 @@ class XCamModule : XposedModule() {
                     val height = (chain.args[2] as? Number)?.toInt() ?: 0
 
                     if (xRenderer == null || xRenderer?.currentPath != path) {
-                        printLog("Renderer update for: $path")
                         xRenderer?.release()
                         xRenderer = XCamRenderer(context, path, isMirrored, rotationAngle, this)
                     }
 
                     val success = xRenderer?.draw(width, height) ?: false
-                    if (success) {
-                        null // Bypass original
-                    } else {
-                        chain.proceed()
-                    }
+                    if (success) null else chain.proceed()
                 } catch (e: Throwable) {
                     chain.proceed()
                 }
             }
-            printLog("Legacy renderer hook: OK")
+            printLog("Renderer hook: OK")
         } catch (e: Throwable) {
-            printLog("Legacy renderer hook failed", e)
+            printLog("Renderer hook failed", e)
         }
     }
 
@@ -149,60 +146,74 @@ class XCamModule : XposedModule() {
                         val format = (chain.args[4] as? Number)?.toInt() ?: 0
 
                         if (format == 0x21 && !path.isNullOrEmpty() && context != null) {
-                            printLog("CAPTURE TRIGGERED: ${width}x${height}")
+                            printLog("CAPTURE ALIGNING: ${width}x${height} (R: $rotationAngle, M: $isMirrored)")
                             val replacement = createCaptureJpeg(context, path, width, height)
                             if (replacement != null) {
-                                // FIX: Buat Array murni secara manual untuk proceed
-                                val newArgs = Array(chain.args.size) { i ->
-                                    if (i == 1) replacement else chain.args[i]
-                                }
-                                printLog("CAPTURE SUCCESS: ${replacement.size} bytes injected")
+                                val newArgs = Array(chain.args.size) { i -> if (i == 1) replacement else chain.args[i] }
                                 return@intercept chain.proceed(newArgs)
-                            } else {
-                                printLog("CAPTURE FAILED: replacement is null")
                             }
                         }
                     } catch (e: Throwable) {
-                        printLog("produceFrame intercept error", e)
+                        printLog("Capture injection failure", e)
                     }
                     chain.proceed()
                 }
-                printLog("Capture path hook: OK")
+                printLog("Capture hook: OK")
             }
         } catch (e: Exception) {
-            printLog("Capture path hook failed", e)
+            printLog("Capture hook failed", e)
         }
     }
 
-    private fun createCaptureJpeg(context: Context, path: String, width: Int, height: Int): ByteArray? {
+    private fun createCaptureJpeg(context: Context, path: String, targetW: Int, targetH: Int): ByteArray? {
         return try {
-            val bitmap: Bitmap? = if (path.lowercase().endsWith(".mp4")) {
+            val rawBitmap: Bitmap? = if (path.lowercase().endsWith(".mp4")) {
                 val retriever = MediaMetadataRetriever()
                 retriever.setDataSource(context, path.toUri())
                 val frame = retriever.getFrameAtTime(1000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 retriever.release()
                 frame
             } else {
-                context.contentResolver.openInputStream(path.toUri())?.use {
-                    BitmapFactory.decodeStream(it)
-                }
+                context.contentResolver.openInputStream(path.toUri())?.use { BitmapFactory.decodeStream(it) }
             }
 
-            if (bitmap == null) {
-                printLog("createCaptureJpeg: Bitmap decoding failed")
-                return null
+            if (rawBitmap == null) return null
+
+            // LOGIKA CENTER CROP AGAR TIDAK GEPENG
+            val sourceW = rawBitmap.width
+            val sourceH = rawBitmap.height
+            val sourceRatio = sourceW.toFloat() / sourceH
+            val targetRatio = targetW.toFloat() / targetH
+
+            var cropW = sourceW
+            var cropH = sourceH
+            var offsetX = 0
+            var offsetY = 0
+
+            if (sourceRatio > targetRatio) {
+                cropW = (sourceH * targetRatio).toInt()
+                offsetX = (sourceW - cropW) / 2
+            } else {
+                cropH = (sourceW / targetRatio).toInt()
+                offsetY = (sourceH - cropH) / 2
             }
 
-            val scaledBitmap = Bitmap.createScaledBitmap(bitmap, width, height, true)
+            // Transformasi: Scale -> Rotate -> Mirror
+            val matrix = AndroidMatrix()
+            matrix.postScale(targetW.toFloat() / cropW, targetH.toFloat() / cropH)
+            if (rotationAngle != 0) matrix.postRotate(rotationAngle.toFloat())
+            if (isMirrored) matrix.postScale(-1f, 1f)
+
+            val finalBitmap = Bitmap.createBitmap(rawBitmap, offsetX, offsetY, cropW, cropH, matrix, true)
             val out = ByteArrayOutputStream()
-            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            finalBitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
             
-            if (bitmap != scaledBitmap) bitmap.recycle()
-            scaledBitmap.recycle()
+            if (rawBitmap != finalBitmap) rawBitmap.recycle()
+            finalBitmap.recycle()
             
             out.toByteArray()
         } catch (e: Exception) {
-            printLog("createCaptureJpeg execution error", e)
+            printLog("createCaptureJpeg error", e)
             null
         }
     }
@@ -218,7 +229,7 @@ class XCamModule : XposedModule() {
                 }
             }
         } catch (e: Exception) {
-            printLog("refreshSettings failed", e)
+            printLog("refreshSettings error", e)
         }
     }
 
@@ -247,10 +258,6 @@ class XCamModule : XposedModule() {
         init {
             Matrix.setIdentityM(stMatrix, 0)
             Matrix.setIdentityM(mvpMatrix, 0)
-            initBuffers()
-        }
-
-        private fun initBuffers() {
             vertexBuffer = ByteBuffer.allocateDirect(48).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
                 put(floatArrayOf(-1f, -1f, 0f, 1f, -1f, 0f, -1f, 1f, 0f, 1f, 1f, 0f)).position(0)
             }
@@ -269,54 +276,35 @@ class XCamModule : XposedModule() {
                     GLES20.glGenTextures(1, tex, 0)
                     textureId = tex[0]
                     GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId)
-                    
                     GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
                     GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-                    GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
-                    GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
-
-                    surfaceTexture = SurfaceTexture(textureId).apply {
-                        setOnFrameAvailableListener { frameAvailable.set(true) }
-                    }
+                    surfaceTexture = SurfaceTexture(textureId).apply { setOnFrameAvailableListener { frameAvailable.set(true) } }
                     mediaPlayer = MediaPlayer().apply {
                         setDataSource(context, currentPath.toUri())
                         setSurface(Surface(surfaceTexture))
                         isLooping = true
-                        setOnPreparedListener { 
-                            mediaW = it.videoWidth
-                            mediaH = it.videoHeight
-                            it.start() 
-                        }
+                        setOnPreparedListener { mediaW = it.videoWidth; mediaH = it.videoHeight; it.start() }
                         prepareAsync()
                     }
                 } else {
                     isOES = false
-                    val bitmap = context.contentResolver.openInputStream(currentPath.toUri())?.use {
-                        BitmapFactory.decodeStream(it)
-                    }
+                    val bitmap = context.contentResolver.openInputStream(currentPath.toUri())?.use { BitmapFactory.decodeStream(it) }
                     if (bitmap != null) {
-                        mediaW = bitmap.width
-                        mediaH = bitmap.height
+                        mediaW = bitmap.width; mediaH = bitmap.height
                         val tex = IntArray(1)
                         GLES20.glGenTextures(1, tex, 0)
                         textureId = tex[0]
                         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
-                        
                         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
                         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-                        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
-                        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
-                        
                         GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
                         bitmap.recycle()
-                        module.printLog("Image texture loaded: ${mediaW}x${mediaH}")
                     }
                 }
                 initShaders()
                 initialized = true
-                module.printLog("Renderer setup complete")
             } catch (e: Exception) {
-                module.printLog("Renderer setup failed", e)
+                module.printLog("Renderer setup error", e)
             }
         }
 
@@ -334,45 +322,21 @@ class XCamModule : XposedModule() {
         fun draw(viewportW: Int, viewportH: Int): Boolean {
             if (!initialized) setup()
             if (!initialized) return false
-            
             try {
-                if (isOES && frameAvailable.compareAndSet(true, false)) { 
-                    surfaceTexture?.updateTexImage()
-                    surfaceTexture?.getTransformMatrix(stMatrix)
-                }
-                
+                if (isOES && frameAvailable.compareAndSet(true, false)) { surfaceTexture?.updateTexImage(); surfaceTexture?.getTransformMatrix(stMatrix) }
                 updateMVPMatrix(viewportW.toFloat(), viewportH.toFloat())
                 GLES20.glViewport(0, 0, viewportW, viewportH)
                 GLES20.glClearColor(0f, 0f, 0f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-                GLES20.glDisable(GLES20.GL_CULL_FACE); GLES20.glDisable(GLES20.GL_DEPTH_TEST)
                 GLES20.glUseProgram(program)
-                
-                val aPos = GLES20.glGetAttribLocation(program, "aPosition")
-                val aTex = GLES20.glGetAttribLocation(program, "aTextureCoord")
-                val uMVP = GLES20.glGetUniformLocation(program, "uMVPMatrix")
-                val uST = GLES20.glGetUniformLocation(program, "uSTMatrix")
-                val uSampler = GLES20.glGetUniformLocation(program, "sTexture")
-
-                GLES20.glEnableVertexAttribArray(aPos)
-                GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 12, vertexBuffer)
-                GLES20.glEnableVertexAttribArray(aTex)
-                GLES20.glVertexAttribPointer(aTex, 2, GLES20.GL_FLOAT, false, 8, texBuffer)
-                
-                GLES20.glUniformMatrix4fv(uMVP, 1, false, mvpMatrix, 0)
-                GLES20.glUniformMatrix4fv(uST, 1, false, stMatrix, 0)
-                
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-                GLES20.glBindTexture(if (isOES) GLES11Ext.GL_TEXTURE_EXTERNAL_OES else GLES20.GL_TEXTURE_2D, textureId)
-                GLES20.glUniform1i(uSampler, 0)
-
+                val aPos = GLES20.glGetAttribLocation(program, "aPosition"); val aTex = GLES20.glGetAttribLocation(program, "aTextureCoord")
+                GLES20.glEnableVertexAttribArray(aPos); GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 12, vertexBuffer)
+                GLES20.glEnableVertexAttribArray(aTex); GLES20.glVertexAttribPointer(aTex, 2, GLES20.GL_FLOAT, false, 8, texBuffer)
+                GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program, "uMVPMatrix"), 1, false, mvpMatrix, 0)
+                GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program, "uSTMatrix"), 1, false, stMatrix, 0)
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(if (isOES) GLES11Ext.GL_TEXTURE_EXTERNAL_OES else GLES20.GL_TEXTURE_2D, textureId)
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-                
-                GLES20.glDisableVertexAttribArray(aPos)
-                GLES20.glDisableVertexAttribArray(aTex)
                 return true
-            } catch (e: Exception) {
-                return false
-            }
+            } catch (e: Exception) { return false }
         }
 
         private fun updateMVPMatrix(viewW: Float, viewH: Float) {
