@@ -19,7 +19,7 @@ import io.github.libxposed.api.XposedModuleInterface
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "v8.8-android16-ultra-safe"
+    private val xcamVersion = "v9.3-android16-universal"
 
     var mediaPath: String? = null
     var isMirrored = false
@@ -57,7 +57,7 @@ class XCamModule : XposedModule() {
         if (hooksInstalled) return
         hooksInstalled = true
 
-        printLog(">>> ENGINE 8.8 ACTIVE IN: $currentProcess <<<")
+        printLog(">>> READY: $currentProcess <<<")
         hookContextInit()
         injectors.installLegacyHooks(param)
         injectors.installCamera1Hooks(param)
@@ -102,8 +102,10 @@ class XCamModule : XposedModule() {
 
     fun stopCamera1Engine() {
         try {
-            c1MediaPlayer?.stop()
-            c1MediaPlayer?.release()
+            c1MediaPlayer?.let {
+                if (it.isPlaying) it.stop()
+                it.release()
+            }
             c1MediaPlayer = null
             c1Surface?.release()
             c1Surface = null
@@ -150,25 +152,19 @@ class XCamModule : XposedModule() {
                     setDataSource(context, path.toUri())
                     setSurface(surface)
                     isLooping = true
-                    setOnPreparedListener { 
-                        it.start() 
-                        printLog("MediaPlayer started successfully")
-                    }
-                    setOnErrorListener { _, what, extra ->
-                        printLog("MediaPlayer Error: $what, $extra")
-                        false
-                    }
+                    setOnPreparedListener { it.start() }
+                    setOnErrorListener { _, _, _ -> stopCamera1Engine(); true }
                     prepareAsync()
                 }
-                printLog("Target Surface Linked: $path")
             } else {
                 val bitmap = context.contentResolver.openInputStream(path.toUri())?.use { BitmapFactory.decodeStream(it) }
                 bitmap?.let {
-                    val canvas = try { surface.lockCanvas(null) } catch (e: Exception) { null }
+                    val canvas = try { if (surface.isValid) surface.lockCanvas(null) else null } catch (e: Exception) { null }
                     if (canvas != null) {
-                        canvas.drawBitmap(it, null, android.graphics.Rect(0, 0, canvas.width, canvas.height), null)
-                        try { surface.unlockCanvasAndPost(canvas) } catch (e: Exception) {}
-                        printLog("Static Image Injected")
+                        try {
+                            canvas.drawBitmap(it, null, android.graphics.Rect(0, 0, canvas.width, canvas.height), null)
+                            surface.unlockCanvasAndPost(canvas)
+                        } catch (e: Exception) {}
                     }
                     it.recycle()
                 }
@@ -190,6 +186,7 @@ class XCamModule : XposedModule() {
     }
 
     fun handleCapture(width: Int, height: Int): ByteArray? {
+        refreshSettings() // Pastikan media path terbaru
         val path = mediaPath ?: return null
         val context = mContext ?: return null
         return XCamCapture.createJpeg(context, path, width, height, rotationAngle, isMirrored) { printLog(it) }
@@ -205,8 +202,6 @@ class XCamModule : XposedModule() {
                     rotationAngle = cursor.getString(3).toIntOrNull() ?: 0
                 }
             }
-        } catch (e: Exception) {
-            printLog("Refresh settings error", e)
-        }
+        } catch (e: Exception) {}
     }
 }

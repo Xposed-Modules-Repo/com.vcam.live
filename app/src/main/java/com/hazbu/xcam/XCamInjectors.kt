@@ -81,7 +81,6 @@ class XCamInjectors(private val module: XCamModule) {
                         module.handleSurfaceViewPreview(h)
                     }
                     override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, h2: Int) {
-                        // Stabilkan transisi capture: panggil handle hanya jika benar-benar perlu
                         module.handleSurfaceViewPreview(h)
                     }
                     override fun surfaceDestroyed(h: SurfaceHolder) {
@@ -90,7 +89,7 @@ class XCamInjectors(private val module: XCamModule) {
                 })
                 holder
             }
-            module.printLog("Android 16 Stability Hooks: INSTALLED")
+            module.printLog("Android 16 Resilient Hooks: INSTALLED")
         } catch (e: Throwable) {}
     }
 }
