@@ -3,8 +3,8 @@ package com.hazbu.xcam
 import android.graphics.BitmapFactory
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.params.OutputConfiguration
 import android.view.Surface
-import android.view.SurfaceHolder
 import io.github.libxposed.api.XposedModuleInterface
 
 class XCamInjectors(private val module: XCamModule) {
@@ -14,11 +14,10 @@ class XCamInjectors(private val module: XCamModule) {
             val rendererClass = param.classLoader.loadClass("android.hardware.camera2.legacy.SurfaceTextureRenderer")
             val drawFrame = rendererClass.getDeclaredMethod("drawFrame", SurfaceTexture::class.java, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
             module.hook(drawFrame).intercept { chain ->
-                val width = (chain.args[1] as? Number)?.toInt() ?: 0
-                val height = (chain.args[2] as? Number)?.toInt() ?: 0
+                val width = (chain.args.getOrNull(1) as? Number)?.toInt() ?: 0
+                val height = (chain.args.getOrNull(2) as? Number)?.toInt() ?: 0
                 if (module.handlePreview(width, height)) null else chain.proceed()
             }
-            module.printLog("xCam Legacy Hooks: OK")
         } catch (e: Throwable) {}
     }
 
@@ -35,55 +34,58 @@ class XCamInjectors(private val module: XCamModule) {
                 }
                 chain.proceed()
             }
-            module.printLog("xCam Camera1 Hooks: OK")
         } catch (e: Throwable) {}
     }
 
     fun installUniversalCaptureHooks(param: XposedModuleInterface.PackageReadyParam) {
-        // 1. THE DIVERTER: Hook addTarget (Safer than OutputConfiguration)
+        installImageReaderHook(param)
+        installStillCaptureHook(param)
+        installBitmapHunter()
+        installModernHijack(param)
+        installSurgicalDiverter(param)
+    }
+
+    private fun installImageReaderHook(param: XposedModuleInterface.PackageReadyParam) {
         try {
-            val builderClass = param.classLoader.loadClass("android.hardware.camera2.CaptureRequest\$Builder")
-            val addTarget = builderClass.getDeclaredMethod("addTarget", Surface::class.java)
-            module.hook(addTarget).intercept { chain ->
-                val surface = chain.args[0] as? Surface
-                if (surface != null && surface.isValid && module.mediaPath?.lowercase()?.endsWith(".mp4") == true) {
-                    if (module.isTargetSurface(surface)) {
-                        module.printLog("xCam Modern Diverter: Redirecting stream to dummy")
-                        val newArgs = chain.args.toTypedArray()
-                        newArgs[0] = Surface(module.getDummyST())
-                        return@intercept chain.proceed(newArgs)
-                    }
-                }
-                chain.proceed()
+            val irClass = param.classLoader.loadClass("android.media.ImageReader")
+            val getSurface = irClass.getDeclaredMethod("getSurface")
+            module.hook(getSurface).intercept { chain ->
+                val surface = chain.proceed() as? Surface
+                if (surface != null) module.markAsCaptureSurface(surface)
+                surface
             }
         } catch (e: Throwable) {}
+    }
 
-        // 2. STILL_CAPTURE Discovery
+    private fun installStillCaptureHook(param: XposedModuleInterface.PackageReadyParam) {
         try {
             val sessionClass = param.classLoader.loadClass("android.hardware.camera2.impl.CameraCaptureSessionImpl")
-            val capture = sessionClass.getDeclaredMethods().find { it.name == "capture" && it.parameterTypes.size >= 2 }
-            capture?.let { method ->
+            val methods = sessionClass.declaredMethods.filter { it.name == "capture" || it.name == "captureBurst" }
+            methods.forEach { method ->
                 module.hook(method).intercept { chain ->
-                    val request = chain.args[0] as? CaptureRequest
-                    if (request != null) {
-                        val template = try { request.get(CaptureRequest.CONTROL_CAPTURE_INTENT) } catch (e: Exception) { -1 }
-                        if (template == CaptureRequest.CONTROL_CAPTURE_INTENT_STILL_CAPTURE) {
-                            module.printLog("xCam STILL_CAPTURE detected")
-                            module.triggerCaptureState()
+                    try {
+                        val request = chain.args.firstOrNull { it is CaptureRequest } as? CaptureRequest
+                        if (request != null) {
+                            val intent = try { request.get(CaptureRequest.CONTROL_CAPTURE_INTENT) } catch (_: Throwable) { null }
+                            if (intent == CaptureRequest.CONTROL_CAPTURE_INTENT_STILL_CAPTURE) {
+                                module.printLog("xCam STILL_CAPTURE detected")
+                                module.triggerCaptureState()
+                            }
                         }
-                    }
+                    } catch (e: Throwable) {}
                     chain.proceed()
                 }
             }
         } catch (e: Throwable) {}
+    }
 
-        // 3. The Hunter: BitmapFactory (ALL VARIANTS)
+    private fun installBitmapHunter() {
         try {
             val bfClass = BitmapFactory::class.java
             bfClass.getDeclaredMethods().filter { it.name == "decodeByteArray" }.forEach { method ->
                 module.hook(method).intercept { chain ->
                     if (module.isCapturingState()) {
-                        module.printLog("xCam Hunter: Replacing captured bytes!")
+                        module.printLog("xCam Hunter: Replacing captured bytes")
                         val replacement = module.handleCapture(1280, 1280)
                         if (replacement != null) {
                             val newArgs = Array(chain.args.size) { i -> 
@@ -98,41 +100,81 @@ class XCamInjectors(private val module: XCamModule) {
                 }
             }
         } catch (e: Throwable) {}
-        
-        module.printLog("xCam Universal Capture Hooks: OK")
+    }
+
+    private fun installModernHijack(param: XposedModuleInterface.PackageReadyParam) {
+        try {
+            val ocClass = param.classLoader.loadClass("android.hardware.camera2.params.OutputConfiguration")
+            ocClass.declaredConstructors.forEach { constructor ->
+                module.hook(constructor).intercept { chain ->
+                    try {
+                        val surface = chain.args.getOrNull(0) as? Surface
+                        if (surface != null && surface.isValid && module.mediaPath?.lowercase()?.endsWith(".mp4") == true) {
+                            if (module.isCaptureSurface(surface)) return@intercept chain.proceed()
+                            
+                            if (surface.toString().contains("SurfaceTexture") && !module.previewSwapped) {
+                                module.printLog("xCam Modern Hijack: Swapping Preview")
+                                module.previewSwapped = true
+                                module.handleModernPreview(surface)
+                                val newArgs = Array(chain.args.size) { i -> if (i == 0) module.getDummySurface() else chain.args[i] }
+                                return@intercept chain.proceed(newArgs)
+                            }
+                        }
+                    } catch (e: Throwable) {}
+                    chain.proceed()
+                }
+            }
+        } catch (e: Throwable) {}
+    }
+
+    private fun installSurgicalDiverter(param: XposedModuleInterface.PackageReadyParam) {
+        try {
+            val builderClass = param.classLoader.loadClass("android.hardware.camera2.CaptureRequest\$Builder")
+            val addTarget = builderClass.getDeclaredMethod("addTarget", Surface::class.java)
+            module.hook(addTarget).intercept { chain ->
+                val builder = chain.thisObject as? CaptureRequest.Builder
+                val surface = chain.args[0] as? Surface
+                
+                if (builder != null && surface != null && module.mediaPath != null) {
+                    val intent = try { builder.get(CaptureRequest.CONTROL_CAPTURE_INTENT) } catch (_: Throwable) { -1 }
+                    
+                    // CRITICAL FIX v16.5: Jika intent adalah STILL_CAPTURE, JANGAN dibelokkan
+                    if (intent == CaptureRequest.CONTROL_CAPTURE_INTENT_STILL_CAPTURE) {
+                        module.printLog("xCam Diverter: Capture target detected - Allowing original data flow")
+                        module.triggerCaptureState() // Trigger hunter lebih awal
+                        return@intercept chain.proceed()
+                    }
+
+                    if (module.isPreviewSurface(surface)) {
+                        module.printLog("xCam Diverter: Redirecting Preview to Dummy")
+                        val newArgs = Array(chain.args.size) { i -> if (i == 0) module.getDummySurface() else chain.args[i] }
+                        return@intercept chain.proceed(newArgs)
+                    }
+                }
+                chain.proceed()
+            }
+        } catch (e: Throwable) {}
     }
 
     fun installAndroid16UIHooks(param: XposedModuleInterface.PackageReadyParam) {
         try {
-            val textureViewClass = param.classLoader.loadClass("android.view.TextureView")
-            val setSurfaceTexture = textureViewClass.getDeclaredMethod("setSurfaceTexture", SurfaceTexture::class.java)
-            module.hook(setSurfaceTexture).intercept { chain ->
-                val st = chain.args[0] as? SurfaceTexture
-                if (st != null) {
-                    module.markAsTargetSurface(Surface(st))
-                    module.handleCamera1Preview(st)
+            val clazz = param.classLoader.loadClass("android.hardware.camera2.impl.CameraDeviceImpl")
+            clazz.declaredMethods.filter { it.name.startsWith("createCaptureSession") }.forEach { method ->
+                module.hook(method).intercept { chain ->
+                    module.printLog("xCam ===== CAMERA SESSION CREATE =====")
+                    chain.args.forEach { arg -> inspectSessionArgument(arg) }
+                    chain.proceed()
                 }
-                chain.proceed()
             }
-
-            val surfaceViewClass = param.classLoader.loadClass("android.view.SurfaceView")
-            val getHolder = surfaceViewClass.getDeclaredMethod("getHolder")
-            module.hook(getHolder).intercept { chain ->
-                val holder = chain.proceed() as? SurfaceHolder
-                holder?.addCallback(object : SurfaceHolder.Callback {
-                    override fun surfaceCreated(h: SurfaceHolder) { 
-                        module.markAsTargetSurface(h.surface)
-                        module.handleSurfaceViewPreview(h) 
-                    }
-                    override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, h2: Int) { 
-                        module.markAsTargetSurface(h.surface)
-                        module.handleSurfaceViewPreview(h) 
-                    }
-                    override fun surfaceDestroyed(h: SurfaceHolder) { module.stopCamera1Engine() }
-                })
-                holder
-            }
-            module.printLog("xCam Android 16 UI Hooks: OK")
         } catch (e: Throwable) {}
+    }
+
+    private fun inspectSessionArgument(arg: Any?) {
+        when (arg) {
+            is Surface -> module.registerPreviewSurface(arg)
+            is OutputConfiguration -> arg.surface?.let { module.registerPreviewSurface(it) }
+            is Collection<*> -> arg.forEach { inspectSessionArgument(it) }
+            is Array<*> -> arg.forEach { inspectSessionArgument(it) }
+        }
     }
 }
