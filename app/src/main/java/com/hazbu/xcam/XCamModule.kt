@@ -14,18 +14,19 @@ import io.github.libxposed.api.XposedModuleInterface
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "v7.5-tiktok-loop-fix"
+    private val xcamVersion = "xCam"
 
     var mediaPath: String? = null
     var isMirrored = false
     var rotationAngle = 0
     private var isInitialized = false
     private var mContext: Context? = null
-    private var hooksInstalled = false // Anti-loop flag
+    private var hooksInstalled = false
     
     private var xRenderer: XCamRenderer? = null
     private val injectors = XCamInjectors(this)
 
+    // Camera1 Engine State
     private var c1MediaPlayer: MediaPlayer? = null
     private var c1Surface: Surface? = null
     private var lastST: SurfaceTexture? = null
@@ -41,23 +42,16 @@ class XCamModule : XposedModule() {
         super.onPackageReady(param)
         
         val processName = getProcessName()
-        
-        // Proteksi 1: Hanya jalankan di paket yang relevan
         if (param.packageName == "com.hazbu.xcam") {
             hookManagerApp(param)
             return
         }
 
-        // Proteksi 2: Hanya aktif di proses utama (Bukan WebView)
-        if (param.packageName != processName) {
-            return 
-        }
-
-        // Proteksi 3: Jangan pasang hook dua kali
+        if (param.packageName != processName) return
         if (hooksInstalled) return
         hooksInstalled = true
 
-        printLog(">>> INSTALLING HOOKS IN: $processName <<<")
+        printLog(">>> INJECTING UNIVERSAL ENGINE INTO: $processName <<<")
         hookContextInit()
         injectors.installLegacyHooks(param)
         injectors.installCamera1Hooks(param)
@@ -98,9 +92,23 @@ class XCamModule : XposedModule() {
         }
     }
 
+    private fun stopCamera1Engine() {
+        try {
+            c1MediaPlayer?.stop()
+            c1MediaPlayer?.release()
+            c1MediaPlayer = null
+            c1Surface?.release()
+            c1Surface = null
+            lastST = null
+        } catch (_: Exception) {}
+    }
+
+    // --- INJECTOR HANDLERS ---
+
     fun handlePreview(width: Int, height: Int): Boolean {
         val path = mediaPath ?: return false
         val context = mContext ?: return false
+        
         return try {
             if (xRenderer == null || xRenderer?.currentPath != path) {
                 xRenderer?.release()
@@ -117,14 +125,10 @@ class XCamModule : XposedModule() {
         if (st == lastST && c1MediaPlayer?.isPlaying == true) return
         lastST = st
 
-        printLog("Camera1: Redirecting to Surface @${st.hashCode()}")
+        printLog("Active Session: Camera1 Redirect (ST:@${st.hashCode()})")
         
         try {
-            // Reuse Player jika memungkinkan, tapi TikTok sering minta refresh Surface
-            c1MediaPlayer?.stop()
-            c1MediaPlayer?.release()
-            c1Surface?.release()
-
+            stopCamera1Engine() 
             c1Surface = Surface(st)
             
             if (path.lowercase().endsWith(".mp4")) {
@@ -134,10 +138,7 @@ class XCamModule : XposedModule() {
                     isLooping = true
                     prepareAsync()
                     setOnPreparedListener { it.start() }
-                    setOnErrorListener { _, what, extra ->
-                        printLog("C1 Error: $what, $extra")
-                        false
-                    }
+                    setOnErrorListener { _, _, _ -> false }
                 }
             } else {
                 val bitmap = context.contentResolver.openInputStream(path.toUri())?.use { BitmapFactory.decodeStream(it) }
@@ -149,7 +150,7 @@ class XCamModule : XposedModule() {
                 }
             }
         } catch (e: Exception) {
-            printLog("C1 fatal error", e)
+            printLog("Camera1 Engine Error", e)
         }
     }
 
@@ -172,6 +173,7 @@ class XCamModule : XposedModule() {
                     mediaPath = cursor.getString(0)
                     isMirrored = cursor.getString(2) == "1"
                     rotationAngle = cursor.getString(3).toIntOrNull() ?: 0
+                    printLog("Settings Sync: $mediaPath")
                 }
             }
         } catch (_: Exception) {}

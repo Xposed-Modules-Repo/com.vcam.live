@@ -1,8 +1,6 @@
 package com.hazbu.xcam
 
 import android.graphics.SurfaceTexture
-import android.view.Surface
-import android.view.SurfaceHolder
 import io.github.libxposed.api.XposedModuleInterface
 
 class XCamInjectors(private val module: XCamModule) {
@@ -17,6 +15,7 @@ class XCamInjectors(private val module: XCamModule) {
                 val height = (chain.args[2] as? Number)?.toInt() ?: 0
                 if (module.handlePreview(width, height)) null else chain.proceed()
             }
+            module.printLog("Legacy Preview Hook: OK")
         } catch (e: Throwable) {}
 
         try {
@@ -39,6 +38,7 @@ class XCamInjectors(private val module: XCamModule) {
                     chain.proceed()
                 }
             }
+            module.printLog("Legacy Capture Hook: OK")
         } catch (e: Throwable) {}
     }
 
@@ -50,12 +50,8 @@ class XCamInjectors(private val module: XCamModule) {
             module.hook(setPreviewTexture).intercept { chain ->
                 val originalST = chain.args[0] as? SurfaceTexture
                 if (originalST != null && module.mediaPath != null) {
-                    module.printLog("Camera1 Hijack: Preparing redirection")
-                    
-                    // Gunakan Dummy SurfaceTexture tetap (Singleton)
                     val newArgs = chain.args.toTypedArray()
                     newArgs[0] = module.getDummyST()
-                    
                     module.handleCamera1Preview(originalST)
                     return@intercept chain.proceed(newArgs)
                 }
@@ -65,14 +61,14 @@ class XCamInjectors(private val module: XCamModule) {
             val takePicture = cameraClass.getDeclaredMethods().find { it.name == "takePicture" && it.parameterTypes.size >= 4 }
             takePicture?.let { method ->
                 module.hook(method).intercept { chain ->
-                    module.printLog("Camera1 Hijack: Captured via takePicture")
+                    module.printLog("Camera1 Capture Triggered")
                     chain.proceed()
                 }
             }
             
-            module.printLog("Camera1 Hooks: v7.4 Stable Ready")
+            module.printLog("Camera1 Hooks: OK")
         } catch (e: Throwable) {
-            module.printLog("Camera1 Hook failed: ${e.message}")
+            module.printLog("Camera1 Hooks failed")
         }
     }
 }
