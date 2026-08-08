@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "v5.8-final-capture-fix"
+    private val xcamVersion = "v5.9.2-final-body-fix"
 
     private var mediaPath: String? = null
     private var isMirrored = false
@@ -152,11 +152,12 @@ class XCamModule : XposedModule() {
                             printLog("CAPTURE TRIGGERED: ${width}x${height}")
                             val replacement = createCaptureJpeg(context, path, width, height)
                             if (replacement != null) {
-                                // Fix: Create a new Array<Any?> from existing args and call proceed(Array)
-                                val modifiedArgs = chain.args.toTypedArray()
-                                modifiedArgs[1] = replacement
+                                // FIX: Buat Array murni secara manual untuk proceed
+                                val newArgs = Array(chain.args.size) { i ->
+                                    if (i == 1) replacement else chain.args[i]
+                                }
                                 printLog("CAPTURE SUCCESS: ${replacement.size} bytes injected")
-                                return@intercept chain.proceed(modifiedArgs)
+                                return@intercept chain.proceed(newArgs)
                             } else {
                                 printLog("CAPTURE FAILED: replacement is null")
                             }
@@ -268,6 +269,12 @@ class XCamModule : XposedModule() {
                     GLES20.glGenTextures(1, tex, 0)
                     textureId = tex[0]
                     GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId)
+                    
+                    GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+                    GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+                    GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                    GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+
                     surfaceTexture = SurfaceTexture(textureId).apply {
                         setOnFrameAvailableListener { frameAvailable.set(true) }
                     }
@@ -294,8 +301,15 @@ class XCamModule : XposedModule() {
                         GLES20.glGenTextures(1, tex, 0)
                         textureId = tex[0]
                         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
+                        
+                        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+                        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+                        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+                        
                         GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
                         bitmap.recycle()
+                        module.printLog("Image texture loaded: ${mediaW}x${mediaH}")
                     }
                 }
                 initShaders()
@@ -332,14 +346,29 @@ class XCamModule : XposedModule() {
                 GLES20.glClearColor(0f, 0f, 0f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
                 GLES20.glDisable(GLES20.GL_CULL_FACE); GLES20.glDisable(GLES20.GL_DEPTH_TEST)
                 GLES20.glUseProgram(program)
-                val aPos = GLES20.glGetAttribLocation(program, "aPosition"); val aTex = GLES20.glGetAttribLocation(program, "aTextureCoord")
-                GLES20.glEnableVertexAttribArray(aPos); GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 12, vertexBuffer)
-                GLES20.glEnableVertexAttribArray(aTex); GLES20.glVertexAttribPointer(aTex, 2, GLES20.GL_FLOAT, false, 8, texBuffer)
-                GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program, "uMVPMatrix"), 1, false, mvpMatrix, 0)
-                GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program, "uSTMatrix"), 1, false, stMatrix, 0)
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(if (isOES) GLES11Ext.GL_TEXTURE_EXTERNAL_OES else GLES20.GL_TEXTURE_2D, textureId)
+                
+                val aPos = GLES20.glGetAttribLocation(program, "aPosition")
+                val aTex = GLES20.glGetAttribLocation(program, "aTextureCoord")
+                val uMVP = GLES20.glGetUniformLocation(program, "uMVPMatrix")
+                val uST = GLES20.glGetUniformLocation(program, "uSTMatrix")
+                val uSampler = GLES20.glGetUniformLocation(program, "sTexture")
+
+                GLES20.glEnableVertexAttribArray(aPos)
+                GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 12, vertexBuffer)
+                GLES20.glEnableVertexAttribArray(aTex)
+                GLES20.glVertexAttribPointer(aTex, 2, GLES20.GL_FLOAT, false, 8, texBuffer)
+                
+                GLES20.glUniformMatrix4fv(uMVP, 1, false, mvpMatrix, 0)
+                GLES20.glUniformMatrix4fv(uST, 1, false, stMatrix, 0)
+                
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+                GLES20.glBindTexture(if (isOES) GLES11Ext.GL_TEXTURE_EXTERNAL_OES else GLES20.GL_TEXTURE_2D, textureId)
+                GLES20.glUniform1i(uSampler, 0)
+
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-                GLES20.glDisableVertexAttribArray(aPos); GLES20.glDisableVertexAttribArray(aTex)
+                
+                GLES20.glDisableVertexAttribArray(aPos)
+                GLES20.glDisableVertexAttribArray(aTex)
                 return true
             } catch (e: Exception) {
                 return false
