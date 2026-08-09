@@ -4,57 +4,38 @@ import android.graphics.BitmapFactory
 import android.os.Build
 import io.github.libxposed.api.XposedModuleInterface
 
-/**
- * Polisi Lalu Lintas: Mendeteksi Versi OS dan Mengarahkan ke Injector yang Tepat.
- */
 class XCamInjectors(private val module: XCamModule) {
 
     private val legacyInjector = XCamInjectorsLegacy(module)
     private val modernInjector = XCamInjectorsModern(module)
 
-    fun installLegacyHooks(param: XposedModuleInterface.PackageReadyParam) {
-        // Hanya untuk Android 9, 10, 11
+    fun install(param: XposedModuleInterface.PackageReadyParam) {
+        installBitmapHunter()
         if (Build.VERSION.SDK_INT < 31) {
             legacyInjector.install(param)
-        }
-    }
-
-    fun installCamera1Hooks(param: XposedModuleInterface.PackageReadyParam) {
-        // Panggil Method 2 (Direct) dari legacy injector
-        if (Build.VERSION.SDK_INT >= 31) {
+        } else {
+            modernInjector.install(param)
             legacyInjector.installMethod2(param)
-        }
-    }
-
-    fun installUniversalCaptureHooks(param: XposedModuleInterface.PackageReadyParam) {
-        // 1. Hunter Hook: BitmapFactory (Universal)
-        installBitmapHunter()
-
-        // 2. Modern Hooks: Hanya untuk Android 12+
-        if (Build.VERSION.SDK_INT >= 31) {
-            modernInjector.install(param)
-        }
-    }
-
-    fun installAndroid16UIHooks(param: XposedModuleInterface.PackageReadyParam) {
-        if (Build.VERSION.SDK_INT >= 31) {
-            modernInjector.install(param)
         }
     }
 
     private fun installBitmapHunter() {
         try {
             val bfClass = BitmapFactory::class.java
-            bfClass.getDeclaredMethods().filter { it.name == "decodeByteArray" }.forEach { method ->
+            val methods = bfClass.declaredMethods.filter { it.name == "decodeByteArray" }
+            
+            methods.forEach { method ->
                 module.hook(method).intercept { chain ->
                     if (module.isCapturingState()) {
-                        module.printLog("xCam Hunter: Replacing captured bytes")
+                        module.printLog("Hunter: Success! Intercepted decodeByteArray")
                         val replacement = module.handleCapture(1280, 1280)
                         if (replacement != null) {
                             val newArgs = Array(chain.args.size) { i -> 
-                                if (i == 0) replacement 
-                                else if (i == 2 && chain.args.size >= 3) replacement.size
-                                else chain.args[i] 
+                                when (i) {
+                                    0 -> replacement 
+                                    2 -> if (chain.args.size >= 3) replacement.size else chain.args[i]
+                                    else -> chain.args[i]
+                                }
                             }
                             return@intercept chain.proceed(newArgs)
                         }
@@ -62,6 +43,9 @@ class XCamInjectors(private val module: XCamModule) {
                     chain.proceed()
                 }
             }
-        } catch (_: Throwable) {}
+            module.printLog("Universal Hunter Hook Installed")
+        } catch (e: Throwable) {
+            module.printLog("Hunter Hook installation failed", e)
+        }
     }
 }

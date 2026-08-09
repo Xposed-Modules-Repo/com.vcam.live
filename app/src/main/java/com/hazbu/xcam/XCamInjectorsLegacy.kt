@@ -1,21 +1,17 @@
 package com.hazbu.xcam
 
+import android.annotation.SuppressLint
 import android.graphics.SurfaceTexture
 import io.github.libxposed.api.XposedModuleInterface
 
-/**
- * Jalur Tempur Khusus Android 9, 10, 11 (API 28-30)
- */
 class XCamInjectorsLegacy(private val module: XCamModule) {
 
     fun install(param: XposedModuleInterface.PackageReadyParam) {
-        installMethod1(param) // Renderer path
-        installMethod2(param) // Direct path
+        installMethod1(param)
+        installMethod2(param)
     }
 
-    /**
-     * METHOD 1: Camera2 Legacy (SurfaceTextureRenderer)
-     */
+    @SuppressLint("PrivateApi")
     private fun installMethod1(param: XposedModuleInterface.PackageReadyParam) {
         try {
             val rendererClass = param.classLoader.loadClass("android.hardware.camera2.legacy.SurfaceTextureRenderer")
@@ -29,10 +25,9 @@ class XCamInjectorsLegacy(private val module: XCamModule) {
             module.printLog("Legacy: Method 1 (Renderer) Hook OK")
         } catch (_: Throwable) {}
 
-        // Capture Path for Legacy Camera2
         try {
             val legacyDeviceClass = param.classLoader.loadClass("android.hardware.camera2.legacy.LegacyCameraDevice")
-            val produceFrame = legacyDeviceClass.getDeclaredMethods().find { 
+            val produceFrame = legacyDeviceClass.declaredMethods.find {
                 it.name == "produceFrame" && it.parameterTypes.size == 5 && it.parameterTypes[1] == ByteArray::class.java 
             }
             
@@ -56,19 +51,14 @@ class XCamInjectorsLegacy(private val module: XCamModule) {
         } catch (_: Throwable) {}
     }
 
-    /**
-     * METHOD 2: Camera1 (setPreviewTexture)
-     */
     fun installMethod2(param: XposedModuleInterface.PackageReadyParam) {
         try {
             val cameraClass = param.classLoader.loadClass("android.hardware.Camera")
-            
-            // Preview Hook
             val setPreviewTexture = cameraClass.getDeclaredMethod("setPreviewTexture", SurfaceTexture::class.java)
             module.hook(setPreviewTexture).intercept { chain ->
                 val originalST = chain.args.getOrNull(0) as? SurfaceTexture
                 if (originalST != null && module.mediaPath != null) {
-                    module.printLog("Legacy: Method 2 (Direct) Hook Detected")
+                    module.printLog("Legacy: Method 2 Hook Detected")
                     val newArgs = Array(chain.args.size) { i -> if (i == 0) module.getDummyST() else chain.args[i] }
                     module.handleCamera1Preview(originalST)
                     return@intercept chain.proceed(newArgs)
@@ -76,7 +66,6 @@ class XCamInjectorsLegacy(private val module: XCamModule) {
                 chain.proceed()
             }
 
-            // Capture Trigger
             val takePicture = cameraClass.getDeclaredMethods().find { it.name == "takePicture" && it.parameterTypes.size >= 4 }
             takePicture?.let { method ->
                 module.hook(method).intercept { chain ->

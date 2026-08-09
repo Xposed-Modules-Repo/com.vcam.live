@@ -1,7 +1,6 @@
 package com.hazbu.xcam
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
@@ -107,7 +106,7 @@ class XCamRenderer(
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(if (isOES) GLES11Ext.GL_TEXTURE_EXTERNAL_OES else GLES20.GL_TEXTURE_2D, textureId)
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             return true
-        } catch (e: Exception) { return false }
+        } catch (_: Exception) { return false }
     }
 
     private fun updateMVPMatrix(viewW: Float, viewH: Float) {
