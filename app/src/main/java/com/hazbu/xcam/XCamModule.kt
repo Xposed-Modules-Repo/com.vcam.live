@@ -19,7 +19,7 @@ import io.github.libxposed.api.XposedModuleInterface
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "v18.1-clean"
+    private val xcamVersion = "v18.3-master"
 
     var mediaPath: String? = null
     var isMirrored = false
@@ -34,6 +34,9 @@ class XCamModule : XposedModule() {
 
     @Volatile
     private var isCapturing = false
+    
+    @Volatile
+    private var isPlayerBusy = false
 
     private val uiHandler = Handler(Looper.getMainLooper())
     private var xRenderer: XCamRenderer? = null
@@ -46,6 +49,7 @@ class XCamModule : XposedModule() {
 
     private var dummyST: SurfaceTexture? = null
     private var dummySurface: Surface? = null
+
 
     fun printLog(msg: String, tr: Throwable? = null) {
         val fullMsg = "xCam: [$xcamVersion] $msg"
@@ -79,7 +83,9 @@ class XCamModule : XposedModule() {
         if (surface == null) return false
         val hash = surface.hashCode()
         if (previewSurfaceHashes.contains(hash)) return true
-        if (surface.toString().contains("SurfaceTexture")) {
+        
+        val desc = surface.toString()
+        if (desc.contains("SurfaceTexture") || desc.contains("TextureView")) {
             registerPreviewSurface(surface)
             return true
         }
@@ -91,6 +97,7 @@ class XCamModule : XposedModule() {
         previewSwapped = false
     }
 
+
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
         super.onPackageReady(param)
         val processName = getProcessNameStrict()
@@ -98,9 +105,11 @@ class XCamModule : XposedModule() {
             hookManagerApp(param)
             return
         }
-        if (param.packageName != processName) return
+        
+        if (!processName.contains(param.packageName)) return
         if (hooksInstalled) return
         hooksInstalled = true
+
         clearPreviewSurfaces()
         printLog(">>> ACTIVE IN: $processName (API ${Build.VERSION.SDK_INT}) <<<")
         hookContextInit()
@@ -123,7 +132,7 @@ class XCamModule : XposedModule() {
         try {
             val clazz = param.classLoader.loadClass("com.hazbu.xcam.MainActivity")
             hook(clazz.getDeclaredMethod("checkSelfActive")).intercept { true }
-        } catch (_: Throwable) {}
+        } catch (e: Throwable) {}
     }
 
     @SuppressLint("PrivateApi")
@@ -131,6 +140,7 @@ class XCamModule : XposedModule() {
         try {
             val attachMethod = Class.forName("android.content.ContextWrapper")
                 .getDeclaredMethod("attachBaseContext", Context::class.java)
+
             hook(attachMethod).intercept { chain ->
                 val result = chain.proceed()
                 if (!isInitialized) {
@@ -147,6 +157,7 @@ class XCamModule : XposedModule() {
 
     fun stopCamera1Engine() {
         try {
+            isPlayerBusy = true
             c1MediaPlayer?.let { player ->
                 if (player.isPlaying) player.stop()
                 player.reset()
@@ -154,8 +165,11 @@ class XCamModule : XposedModule() {
             }
         } catch (_: Throwable) {}
         c1MediaPlayer = null
+        isPlayerBusy = false
+        
         try { c1Surface?.release() } catch (_: Throwable) {}
         c1Surface = null
+
         lastST = null
         lastModernSurface = null
     }
@@ -164,6 +178,7 @@ class XCamModule : XposedModule() {
         val path = mediaPath ?: return false
         if (!path.lowercase().endsWith(".mp4")) return false
         val context = mContext ?: return false
+        
         return try {
             if (xRenderer == null || xRenderer?.currentPath != path) {
                 xRenderer?.release()
@@ -176,19 +191,29 @@ class XCamModule : XposedModule() {
     fun handleCamera1Preview(st: SurfaceTexture) {
         val path = mediaPath ?: return
         val context = mContext ?: return
-        if (st == lastST && c1MediaPlayer?.isPlaying == true) return
+        
+        if (st == lastST && (c1MediaPlayer?.isPlaying == true || isPlayerBusy)) return
         lastST = st
+
         try {
             stopCamera1Engine() 
             c1Surface = Surface(st)
+            
             if (path.lowercase().endsWith(".mp4")) {
+                isPlayerBusy = true
                 c1MediaPlayer = MediaPlayer().apply {
                     setDataSource(context, path.toUri())
                     setSurface(c1Surface)
                     isLooping = true
                     prepareAsync()
-                    setOnPreparedListener { it.start() }
-                    setOnErrorListener { _, _, _ -> stopCamera1Engine(); true }
+                    setOnPreparedListener { 
+                        isPlayerBusy = false
+                        it.start() 
+                    }
+                    setOnErrorListener { _, _, _ -> 
+                        isPlayerBusy = false
+                        stopCamera1Engine(); true 
+                    }
                 }
             } else {
                 val bitmap = context.contentResolver.openInputStream(path.toUri())?.use { BitmapFactory.decodeStream(it) }
@@ -200,12 +225,13 @@ class XCamModule : XposedModule() {
                 }
             }
         } catch (e: Exception) {
-            printLog("Method 2 fatal error", e)
+            isPlayerBusy = false
+            printLog("C1 fatal error", e)
         }
     }
 
     fun handleModernPreview(surface: Surface) {
-        if (surface == lastModernSurface && c1MediaPlayer?.isPlaying == true) return
+        if (surface == lastModernSurface && (c1MediaPlayer?.isPlaying == true || isPlayerBusy)) return
         lastModernSurface = surface
         uiHandler.post {
             if (!surface.isValid) return@post
@@ -225,27 +251,34 @@ class XCamModule : XposedModule() {
     }
 
     private fun injectToSurface(surface: Surface, context: Context, path: String) {
-        if (!surface.isValid) return
-        try {
-            stopCamera1Engine()
-            android.os.SystemClock.sleep(50)
-            if (!surface.isValid) return
-            c1Surface = surface
-            c1MediaPlayer = MediaPlayer().apply {
-                setDataSource(context, path.toUri())
-                setSurface(surface)
-                isLooping = true
-                setOnPreparedListener {
-                    try { it.start(); printLog("Modern Engine Running") } catch (_: Throwable) {}
+        synchronized(this) {
+            if (!surface.isValid || isPlayerBusy) return
+            try {
+                stopCamera1Engine()
+                android.os.SystemClock.sleep(50)
+                if (!surface.isValid) return
+                
+                isPlayerBusy = true
+                c1Surface = surface
+                c1MediaPlayer = MediaPlayer().apply {
+                    setDataSource(context, path.toUri())
+                    setSurface(surface)
+                    isLooping = true
+                    setOnPreparedListener {
+                        isPlayerBusy = false
+                        try { it.start(); printLog("Engine Active") } catch (_: Throwable) {}
+                    }
+                    setOnErrorListener { _, what, extra ->
+                        isPlayerBusy = false
+                        printLog("Player Error: $what, $extra")
+                        stopCamera1Engine(); true
+                    }
+                    prepareAsync()
                 }
-                setOnErrorListener { _, what, extra ->
-                    printLog("Modern Player Error: $what, $extra")
-                    stopCamera1Engine(); true
-                }
-                prepareAsync()
+            } catch (e: Throwable) {
+                isPlayerBusy = false
+                printLog("Modern Injection Error", e)
             }
-        } catch (e: Throwable) {
-            printLog("Modern Surface Injection Error", e)
         }
     }
 
@@ -253,6 +286,9 @@ class XCamModule : XposedModule() {
         if (dummyST == null) {
             dummyST = SurfaceTexture(999).apply {
                 setOnFrameAvailableListener { try { updateTexImage() } catch (_: Exception) {} }
+            }
+            if (Build.VERSION.SDK_INT >= 31) {
+                try { dummyST?.detachFromGLContext() } catch (_: Throwable) {}
             }
         }
         return dummyST!!
@@ -281,7 +317,6 @@ class XCamModule : XposedModule() {
                     mediaPath = cursor.getString(0)
                     isMirrored = cursor.getString(2) == "1"
                     rotationAngle = cursor.getString(3).toIntOrNull() ?: 0
-                    printLog("Settings Sync: $mediaPath")
                 }
             }
         } catch (_: Exception) {}

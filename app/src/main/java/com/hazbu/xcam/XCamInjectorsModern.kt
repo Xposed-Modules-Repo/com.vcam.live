@@ -24,6 +24,7 @@ class XCamInjectorsModern(private val module: XCamModule) {
             val methods = clazz.declaredMethods.filter { it.name.startsWith("createCaptureSession") }
             methods.forEach { method ->
                 module.hook(method).intercept { chain ->
+                    module.printLog("Modern: Samping sessions - Registry refreshed")
                     module.clearPreviewSurfaces()
                     chain.args.forEach { arg -> inspectSessionArgument(arg) }
                     chain.proceed()
@@ -48,14 +49,19 @@ class XCamInjectorsModern(private val module: XCamModule) {
             module.hook(addTarget).intercept { chain ->
                 val builder = chain.thisObject as? CaptureRequest.Builder
                 val surface = chain.args.getOrNull(0) as? Surface
+                
                 if (builder != null && surface != null && module.mediaPath != null) {
                     val intent = try { builder.get(CaptureRequest.CONTROL_CAPTURE_INTENT) } catch (_: Throwable) { -1 }
+                    
+                    // IF intent is STILL_CAPTURE (2), let it flow to Hunter.
                     if (intent == CaptureRequest.CONTROL_CAPTURE_INTENT_STILL_CAPTURE) {
                         module.triggerCaptureState()
                         return@intercept chain.proceed()
                     }
+
+                    // IF it's PREVIEW (1) or unknown, redirect if matched.
                     if (module.isPreviewSurface(surface)) {
-                        module.printLog("Modern Diverter: Redirecting Preview")
+                        module.printLog("Modern Diverter: Redirecting recognized preview surface")
                         val newArgs = Array(chain.args.size) { i -> if (i == 0) module.getDummySurface() else chain.args[i] }
                         return@intercept chain.proceed(newArgs)
                     }
@@ -73,8 +79,11 @@ class XCamInjectorsModern(private val module: XCamModule) {
                     try {
                         val surface = chain.args.getOrNull(0) as? Surface
                         if (surface != null && surface.isValid && module.mediaPath?.lowercase()?.endsWith(".mp4") == true) {
+                            // Register immediately to catch any missed discovery
+                            module.registerPreviewSurface(surface)
+
                             if (surface.toString().contains("SurfaceTexture") && !module.previewSwapped) {
-                                module.printLog("Modern Hijack: Swapping Preview")
+                                module.printLog("Modern Hijack: Swapping surface at constructor")
                                 module.previewSwapped = true
                                 module.handleModernPreview(surface)
                                 val newArgs = Array(chain.args.size) { i -> if (i == 0) module.getDummySurface() else chain.args[i] }
@@ -94,7 +103,10 @@ class XCamInjectorsModern(private val module: XCamModule) {
             val setSt = tvClass.getDeclaredMethod("setSurfaceTexture", SurfaceTexture::class.java)
             module.hook(setSt).intercept { chain ->
                 val st = chain.args[0] as? SurfaceTexture
-                if (st != null) module.handleCamera1Preview(st)
+                if (st != null) {
+                    module.printLog("Modern UI Hook: TextureView hijack triggered")
+                    module.handleCamera1Preview(st)
+                }
                 chain.proceed()
             }
 
@@ -103,9 +115,16 @@ class XCamInjectorsModern(private val module: XCamModule) {
             module.hook(getHolder).intercept { chain ->
                 val holder = chain.proceed() as? SurfaceHolder
                 holder?.addCallback(object : SurfaceHolder.Callback {
-                    override fun surfaceCreated(h: SurfaceHolder) { module.handleSurfaceViewPreview(h) }
-                    override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, h2: Int) { module.handleSurfaceViewPreview(h) }
-                    override fun surfaceDestroyed(h: SurfaceHolder) { module.stopCamera1Engine() }
+                    override fun surfaceCreated(h: SurfaceHolder) { 
+                        module.printLog("Modern UI Hook: SurfaceView created")
+                        module.handleSurfaceViewPreview(h) 
+                    }
+                    override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, h2: Int) { 
+                        module.handleSurfaceViewPreview(h) 
+                    }
+                    override fun surfaceDestroyed(h: SurfaceHolder) { 
+                        module.stopCamera1Engine() 
+                    }
                 })
                 holder
             }
