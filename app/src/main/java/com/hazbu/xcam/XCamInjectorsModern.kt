@@ -24,7 +24,7 @@ class XCamInjectorsModern(private val module: XCamModule) {
             val methods = clazz.declaredMethods.filter { it.name.startsWith("createCaptureSession") }
             methods.forEach { method ->
                 module.hook(method).intercept { chain ->
-                    module.printLog("Modern: Samping sessions - Registry refreshed")
+                    module.printLog("Modern: Monitoring Sessions")
                     module.clearPreviewSurfaces()
                     chain.args.forEach { arg -> inspectSessionArgument(arg) }
                     chain.proceed()
@@ -53,15 +53,13 @@ class XCamInjectorsModern(private val module: XCamModule) {
                 if (builder != null && surface != null && module.mediaPath != null) {
                     val intent = try { builder.get(CaptureRequest.CONTROL_CAPTURE_INTENT) } catch (_: Throwable) { -1 }
                     
-                    // IF intent is STILL_CAPTURE (2), let it flow to Hunter.
                     if (intent == CaptureRequest.CONTROL_CAPTURE_INTENT_STILL_CAPTURE) {
                         module.triggerCaptureState()
                         return@intercept chain.proceed()
                     }
 
-                    // IF it's PREVIEW (1) or unknown, redirect if matched.
                     if (module.isPreviewSurface(surface)) {
-                        module.printLog("Modern Diverter: Redirecting recognized preview surface")
+                        module.printLog("Modern Diverter: Redirecting Preview")
                         val newArgs = Array(chain.args.size) { i -> if (i == 0) module.getDummySurface() else chain.args[i] }
                         return@intercept chain.proceed(newArgs)
                     }
@@ -79,11 +77,8 @@ class XCamInjectorsModern(private val module: XCamModule) {
                     try {
                         val surface = chain.args.getOrNull(0) as? Surface
                         if (surface != null && surface.isValid && module.mediaPath?.lowercase()?.endsWith(".mp4") == true) {
-                            // Register immediately to catch any missed discovery
                             module.registerPreviewSurface(surface)
-
                             if (surface.toString().contains("SurfaceTexture") && !module.previewSwapped) {
-                                module.printLog("Modern Hijack: Swapping surface at constructor")
                                 module.previewSwapped = true
                                 module.handleModernPreview(surface)
                                 val newArgs = Array(chain.args.size) { i -> if (i == 0) module.getDummySurface() else chain.args[i] }
@@ -104,7 +99,7 @@ class XCamInjectorsModern(private val module: XCamModule) {
             module.hook(setSt).intercept { chain ->
                 val st = chain.args[0] as? SurfaceTexture
                 if (st != null) {
-                    module.printLog("Modern UI Hook: TextureView hijack triggered")
+                    module.printLog("Modern UI Hook: TextureView")
                     module.handleCamera1Preview(st)
                 }
                 chain.proceed()

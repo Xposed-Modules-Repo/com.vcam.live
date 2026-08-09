@@ -3,7 +3,6 @@ package com.hazbu.xcam
 import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
-import android.graphics.BitmapFactory
 import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
 import android.os.Build
@@ -19,7 +18,7 @@ import io.github.libxposed.api.XposedModuleInterface
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "v18.3-master"
+    private val xcamVersion = "v18.5-master"
 
     var mediaPath: String? = null
     var isMirrored = false
@@ -132,7 +131,7 @@ class XCamModule : XposedModule() {
         try {
             val clazz = param.classLoader.loadClass("com.hazbu.xcam.MainActivity")
             hook(clazz.getDeclaredMethod("checkSelfActive")).intercept { true }
-        } catch (e: Throwable) {}
+        } catch (_: Throwable) {}
     }
 
     @SuppressLint("PrivateApi")
@@ -215,18 +214,10 @@ class XCamModule : XposedModule() {
                         stopCamera1Engine(); true 
                     }
                 }
-            } else {
-                val bitmap = context.contentResolver.openInputStream(path.toUri())?.use { BitmapFactory.decodeStream(it) }
-                bitmap?.let {
-                    val canvas = c1Surface?.lockCanvas(null)
-                    canvas?.drawBitmap(it, null, android.graphics.Rect(0, 0, canvas.width, canvas.height), null)
-                    c1Surface?.unlockCanvasAndPost(canvas)
-                    it.recycle()
-                }
             }
         } catch (e: Exception) {
             isPlayerBusy = false
-            printLog("C1 fatal error", e)
+            printLog("Legacy Error", e)
         }
     }
 
