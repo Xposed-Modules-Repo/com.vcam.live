@@ -1,0 +1,196 @@
+package com.hazbu.xcam.hooks;
+
+import android.content.ContentResolver;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.net.Uri;
+import android.os.ParcelFileDescriptor;
+import android.provider.MediaStore;
+
+import com.hazbu.xcam.XCamModule;
+
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.lang.reflect.Method;
+
+import io.github.libxposed.api.XposedModuleInterface;
+
+/**
+ * Consolidated Capture Hook.
+ * Handles all image data injection points (BitmapFactory, Bitmap.compress, MediaStore, FileOutput).
+ * Prevents redundant extractions and recursion.
+ */
+public class CaptureHook {
+    private final XCamModule module;
+
+    public CaptureHook(XCamModule module) {
+        this.module = module;
+    }
+
+    public void install(XposedModuleInterface.PackageReadyParam param) {
+        try {
+            module.printLog("Installing Consolidated Capture Hooks", null);
+            
+            // 1. BitmapFactory (Byte Array & Stream)
+            hookBitmapFactory(param);
+            
+            // 2. Bitmap.compress
+            hookBitmapCompress(param);
+            
+            // 3. FileOutputStream (Direct file writes)
+            hookFileOutputStream(param);
+            
+            // 4. ContentResolver (MediaStore / Scoped Storage)
+            hookMediaStore(param);
+            
+        } catch (Throwable t) {
+            module.printLog("Capture Hooks installation failed", t);
+        }
+    }
+
+    private void hookBitmapFactory(XposedModuleInterface.PackageReadyParam param) {
+        try {
+            for (Method method : BitmapFactory.class.getDeclaredMethods()) {
+                // 1. Hook decodeByteArray
+                if (method.getName().equals("decodeByteArray")) {
+                    module.hook(method).intercept(chain -> {
+                        if (module.isIgnoringHooks()) return chain.proceed();
+                        if (module.isCapturingState() && module.getMediaPath() != null) {
+                            byte[] injected = module.handleCapture(0, 0); // Use 0,0 for default/cached
+                            if (injected != null) {
+                                module.printLog("CaptureHook: Injected into decodeByteArray", null);
+                                Object[] args = chain.getArgs().toArray();
+                                args[0] = injected;
+                                if (args.length >= 3) args[2] = injected.length;
+                                return chain.proceed(args);
+                            }
+                        }
+                        return chain.proceed();
+                    });
+                }
+                
+                // 2. Hook decodeStream - Return injected Bitmap directly if capturing
+                // This is more reliable for apps that use streams for camera frames
+                if (method.getName().equals("decodeStream") && method.getParameterTypes().length >= 1) {
+                    module.hook(method).intercept(chain -> {
+                        if (module.isIgnoringHooks()) return chain.proceed();
+                        if (module.isCapturingState() && module.getMediaPath() != null) {
+                            byte[] injected = module.handleCapture(0, 0);
+                            if (injected != null) {
+                                try {
+                                    module.setIgnoringHooks(true);
+                                    // Use Options if provided in args
+                                    BitmapFactory.Options opts = null;
+                                    if (chain.getArgs().size() >= 3 && chain.getArgs().get(2) instanceof BitmapFactory.Options) {
+                                        opts = (BitmapFactory.Options) chain.getArgs().get(2);
+                                    }
+                                    
+                                    Bitmap bitmap = BitmapFactory.decodeByteArray(injected, 0, injected.length, opts);
+                                    if (bitmap != null) {
+                                        module.printLog("CaptureHook: decodeStream -> Injected virtual Bitmap", null);
+                                        return bitmap;
+                                    }
+                                } finally {
+                                    module.setIgnoringHooks(false);
+                                }
+                            }
+                        }
+                        return chain.proceed();
+                    });
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private void hookBitmapCompress(XposedModuleInterface.PackageReadyParam param) {
+        try {
+            Method compress = Bitmap.class.getDeclaredMethod("compress", Bitmap.CompressFormat.class, int.class, OutputStream.class);
+            module.hook(compress).intercept(chain -> {
+                if (module.isIgnoringHooks()) return chain.proceed();
+                if (module.isCapturingState() && module.getMediaPath() != null) {
+                    byte[] injected = module.handleCapture(1280, 1280);
+                    if (injected != null) {
+                        OutputStream os = (OutputStream) chain.getArgs().get(2);
+                        if (os != null) {
+                            try {
+                                module.setIgnoringHooks(true);
+                                os.write(injected);
+                                os.flush();
+                                module.printLog("CaptureHook: Injected into Bitmap.compress", null);
+                                return true;
+                            } catch (Throwable t) {
+                                module.printLog("Bitmap.compress injection failed", t);
+                            } finally {
+                                module.setIgnoringHooks(false);
+                            }
+                        }
+                    }
+                }
+                return chain.proceed();
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    private void hookFileOutputStream(XposedModuleInterface.PackageReadyParam param) {
+        try {
+            Method write = FileOutputStream.class.getDeclaredMethod("write", byte[].class, int.class, int.class);
+            module.hook(write).intercept(chain -> {
+                if (module.isIgnoringHooks()) return chain.proceed();
+                if (module.isCapturingState() && module.getMediaPath() != null) {
+                    byte[] data = (byte[]) chain.getArgs().get(0);
+                    int len = (int) chain.getArgs().get(2);
+                    
+                    // Detect JPEG header (FF D8 FF)
+                    if (data != null && len > 100 && (data[0] & 0xFF) == 0xFF && (data[1] & 0xFF) == 0xD8) {
+                        byte[] injected = module.handleCapture(1280, 1280);
+                        if (injected != null) {
+                            module.printLog("CaptureHook: Injected into FileOutputStream.write (" + len + " bytes)", null);
+                            Object[] args = chain.getArgs().toArray();
+                            args[0] = injected;
+                            args[1] = 0;
+                            args[2] = injected.length;
+                            return chain.proceed(args);
+                        }
+                    }
+                }
+                return chain.proceed();
+            });
+        } catch (Throwable ignored) {}
+    }
+
+    private void hookMediaStore(XposedModuleInterface.PackageReadyParam param) {
+        try {
+            // openFileDescriptor (Scoped Storage)
+            Method openFD = ContentResolver.class.getDeclaredMethod("openFileDescriptor", Uri.class, String.class);
+            module.hook(openFD).intercept(chain -> {
+                if (module.isIgnoringHooks()) return chain.proceed();
+                
+                Uri uri = (Uri) chain.getArgs().get(0);
+                String mode = (String) chain.getArgs().get(1);
+                
+                if (uri != null && mode != null && mode.contains("w") && module.isCapturingState()) {
+                    ParcelFileDescriptor pfd = (ParcelFileDescriptor) chain.proceed();
+                    if (pfd != null) {
+                        byte[] injected = module.handleCapture(1280, 1280);
+                        if (injected != null) {
+                            try {
+                                module.setIgnoringHooks(true);
+                                FileOutputStream fos = new FileOutputStream(pfd.getFileDescriptor());
+                                fos.write(injected);
+                                fos.flush();
+                                module.printLog("CaptureHook: Injected into MediaStore FD: " + uri, null);
+                            } catch (Throwable t) {
+                                module.printLog("MediaStore injection error", t);
+                            } finally {
+                                module.setIgnoringHooks(false);
+                            }
+                        }
+                    }
+                    return pfd;
+                }
+                return chain.proceed();
+            });
+        } catch (Throwable ignored) {}
+    }
+}

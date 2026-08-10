@@ -1,59 +1,28 @@
 package com.hazbu.xcam
 
 import android.graphics.BitmapFactory
-import android.os.Build
+import com.hazbu.xcam.hooks.*
 import io.github.libxposed.api.XposedModuleInterface
 
 class XCamInjectors(private val module: XCamModule) {
 
-    private val legacyInjector = XCamInjectorsLegacy(module)
-    private val modernInjector = XCamInjectorsModern(module)
+    // Migrated Hooks from folder /hooks
+    private val cameraHook = CameraHook(module)
+    private val camera2Hook = Camera2Hook(module)
+    private val cameraxHook = CameraxHook(module)
+    private val intentHook = IntentHook(module)
+    private val uiHook = UIHook(module)
+    private val captureHook = CaptureHook(module)
 
     fun install(param: XposedModuleInterface.PackageReadyParam) {
-        installBitmapHunter()
-        if (Build.VERSION.SDK_INT < 31) {
-            legacyInjector.install(param)
-        } else {
-            modernInjector.install(param)
-            legacyInjector.installMethod2(param)
-        }
-    }
-
-    private fun installBitmapHunter() {
-        try {
-            val bfClass = BitmapFactory::class.java
-            val methods = bfClass.declaredMethods.filter { it.name == "decodeByteArray" }
-            
-            methods.forEach { method ->
-                module.hook(method).intercept { chain ->
-                    if (module.isCapturingState()) {
-                        val originalSize = (chain.args.getOrNull(2) as? Int) ?: 0
-                        module.printLog("Hunter: Intercepting decodeByteArray (Original Size: $originalSize bytes)")
-                        
-                        // Default to 1280x1280 or try to guess from app context if possible
-                        // But handleCapture will return the fake frame
-                        val replacement = module.handleCapture(1280, 1280)
-                        
-                        if (replacement != null) {
-                            module.printLog("Hunter: Injection SUCCESS (New Size: ${replacement.size} bytes)")
-                            val newArgs = Array(chain.args.size) { i -> 
-                                when (i) {
-                                    0 -> replacement 
-                                    2 -> if (chain.args.size >= 3) replacement.size else chain.args[i]
-                                    else -> chain.args[i]
-                                }
-                            }
-                            return@intercept chain.proceed(newArgs)
-                        } else {
-                            module.printLog("Hunter: Injection FAILED (Replacement is null)")
-                        }
-                    }
-                    chain.proceed()
-                }
-            }
-            module.printLog("Universal Hunter Hook Installed")
-        } catch (e: Throwable) {
-            module.printLog("Hunter Hook installation failed", e)
-        }
+        // Specialized Hooks
+        cameraHook.install(param)
+        camera2Hook.install(param)
+        cameraxHook.install(param)
+        intentHook.install(param)
+        uiHook.install(param)
+        captureHook.install(param)
+        
+        module.printLog("All integrated hooks installed successfully", null)
     }
 }

@@ -21,7 +21,7 @@ import io.github.libxposed.api.XposedModuleInterface
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "v21.0-master"
+    private val xcamVersion = "v21.9-master"
 
     var mediaPath: String? = null
     var isMirrored = false
@@ -40,9 +40,15 @@ class XCamModule : XposedModule() {
     @Volatile
     private var isPlayerBusy = false
 
+    @Volatile
     private var cachedCaptureFrame: ByteArray? = null
     private var lastCapturePulseTime = 0L
     private var captureTimeMs = 0
+
+    private val ignoreHooks = ThreadLocal.withInitial { false }
+
+    fun isIgnoringHooks(): Boolean = ignoreHooks.get()
+    fun setIgnoringHooks(ignore: Boolean) = ignoreHooks.set(ignore)
 
     private val uiHandler = Handler(Looper.getMainLooper())
     private var xRenderer: XCamRenderer? = null
@@ -80,8 +86,12 @@ class XCamModule : XposedModule() {
         uiHandler.removeCallbacksAndMessages(null)
         uiHandler.postDelayed({
             isCapturing = false
-            cachedCaptureFrame = null
-            printLog("Capture pulse ended - Cache cleared")
+            // Beri toleransi cache selama 5 detik tambahan untuk app yang lambat menyimpan
+            uiHandler.postDelayed({
+                cachedCaptureFrame = null
+                printLog("Capture Cache Cleared")
+            }, 5000)
+            printLog("Capture pulse ended")
         }, 3000)
     }
 
@@ -391,22 +401,35 @@ class XCamModule : XposedModule() {
     }
 
     fun handleCapture(width: Int, height: Int): ByteArray? {
-        // Return cached frame if available
-        cachedCaptureFrame?.let { 
-            printLog("Hunter: Using cached frame (${it.size} bytes)")
-            return it 
-        }
+        // Jika kita sedang dalam proses internal xCam, abaikan hook agar tidak rekursi
+        if (isIgnoringHooks()) return null
 
         val path = mediaPath ?: return null
         val context = mContext ?: return null
-        
-        printLog("Hunter: Extracting frame at $captureTimeMs ms from MP4")
-        
-        return try {
-            val result = XCamCapture.createJpeg(context, path, width, height, rotationAngle, isMirrored, captureTimeMs) { printLog(it) }
-            cachedCaptureFrame = result
-            result
-        } catch (_: Throwable) { null }
+
+        synchronized(this) {
+            // Gunakan cache jika sudah ada
+            cachedCaptureFrame?.let { return it }
+
+            val targetW = if (width > 0) width else 1280
+            val targetH = if (height > 0) height else 1280
+
+            printLog("Hunter: One-time extraction at $captureTimeMs ms ($targetW x $targetH)")
+            
+            return try {
+                // SET FLAG IGNORE sebelum operasi yang memicu ContentResolver
+                setIgnoringHooks(true)
+                val result = XCamCapture.createJpeg(context, path, targetW, targetH, rotationAngle, isMirrored, captureTimeMs) { printLog(it) }
+                cachedCaptureFrame = result
+                result
+            } catch (e: Throwable) {
+                printLog("Hunter: Extraction failed", e)
+                null
+            } finally {
+                // RESET FLAG IGNORE setelah selesai
+                setIgnoringHooks(false)
+            }
+        }
     }
 
     private fun refreshSettings(context: Context) {
