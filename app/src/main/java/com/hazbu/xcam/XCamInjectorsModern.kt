@@ -10,6 +10,8 @@ import io.github.libxposed.api.XposedModuleInterface
 
 class XCamInjectorsModern(private val module: XCamModule) {
 
+    private val uiHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
     fun install(param: XposedModuleInterface.PackageReadyParam) {
         installModernDiscovery(param)
         installSurgicalDiverter()
@@ -24,19 +26,36 @@ class XCamInjectorsModern(private val module: XCamModule) {
             val methods = clazz.declaredMethods.filter { it.name.startsWith("createCaptureSession") }
             methods.forEach { method ->
                 module.hook(method).intercept { chain ->
-                    module.printLog("Modern: Monitoring Sessions")
+                    val sessionType = if (method.name.contains("Internal")) "INTERNAL" else "STANDARD"
+                    module.printLog("[Discovery] CameraDeviceImpl#${method.name} ($sessionType) | Args: ${chain.args.size}")
                     module.clearPreviewSurfaces()
                     chain.args.forEach { arg -> inspectSessionArgument(arg) }
                     chain.proceed()
                 }
             }
-        } catch (_: Throwable) {}
+
+            val closeMethod = clazz.getDeclaredMethod("close")
+            module.hook(closeMethod).intercept { chain ->
+                module.printLog("Hooked: CameraDeviceImpl#close()")
+                module.stopEngineWithDelay()
+                chain.proceed()
+            }
+        } catch (e: Throwable) {
+            module.printLog("Discovery Hook failed", e)
+        }
     }
 
     private fun inspectSessionArgument(arg: Any?) {
         when (arg) {
-            is Surface -> module.registerPreviewSurface(arg)
-            is OutputConfiguration -> arg.surface?.let { module.registerPreviewSurface(it) }
+            is Surface -> {
+                module.printLog("Modern Discovery: Surface detected (${arg.hashCode()}) - ${arg}")
+                module.registerPreviewSurface(arg)
+            }
+            is OutputConfiguration -> {
+                val surface = arg.surface
+                module.printLog("Modern Discovery: OutputConfiguration surface (${surface?.hashCode()}) - ${surface}")
+                surface?.let { module.registerPreviewSurface(it) }
+            }
             is Collection<*> -> arg.forEach { inspectSessionArgument(it) }
             is Array<*> -> arg.forEach { inspectSessionArgument(it) }
         }
@@ -54,12 +73,13 @@ class XCamInjectorsModern(private val module: XCamModule) {
                     val intent = try { builder.get(CaptureRequest.CONTROL_CAPTURE_INTENT) } catch (_: Throwable) { -1 }
                     
                     if (intent == CaptureRequest.CONTROL_CAPTURE_INTENT_STILL_CAPTURE) {
+                        module.printLog("Hooked: CaptureRequest.Builder#addTarget [STILL_CAPTURE] on Surface(${surface.hashCode()})")
                         module.triggerCaptureState()
                         return@intercept chain.proceed()
                     }
 
                     if (module.isPreviewSurface(surface)) {
-                        module.printLog("Modern Diverter: Redirecting Preview")
+                        module.printLog("Hooked: CaptureRequest.Builder#addTarget [PREVIEW_DIVERT] on Surface(${surface.hashCode()})")
                         val newArgs = Array(chain.args.size) { i -> if (i == 0) module.getDummySurface() else chain.args[i] }
                         return@intercept chain.proceed(newArgs)
                     }
@@ -77,15 +97,22 @@ class XCamInjectorsModern(private val module: XCamModule) {
                     try {
                         val surface = chain.args.getOrNull(0) as? Surface
                         if (surface != null && surface.isValid && module.mediaPath?.lowercase()?.endsWith(".mp4") == true) {
+                            val isST = surface.toString().contains("SurfaceTexture")
+                            module.printLog("[Hijack] OutputConfiguration Constructor | Surface: $surface | isST: $isST")
+                            
                             module.registerPreviewSurface(surface)
-                            if (surface.toString().contains("SurfaceTexture") && !module.previewSwapped) {
+                            
+                            if (isST && !module.previewSwapped) {
+                                module.printLog("[Hijack] ACTION: Swapping Preview Surface...")
                                 module.previewSwapped = true
                                 module.handleModernPreview(surface)
                                 val newArgs = Array(chain.args.size) { i -> if (i == 0) module.getDummySurface() else chain.args[i] }
                                 return@intercept chain.proceed(newArgs)
                             }
                         }
-                    } catch (_: Throwable) {}
+                    } catch (e: Throwable) {
+                        module.printLog("[Hijack] Error in constructor hook", e)
+                    }
                     chain.proceed()
                 }
             }
@@ -99,7 +126,7 @@ class XCamInjectorsModern(private val module: XCamModule) {
             module.hook(setSt).intercept { chain ->
                 val st = chain.args[0] as? SurfaceTexture
                 if (st != null) {
-                    module.printLog("Modern UI Hook: TextureView")
+                    module.printLog("UI Hook: TextureView setSurfaceTexture (ST: ${st.hashCode()})")
                     module.handleCamera1Preview(st)
                 }
                 chain.proceed()
@@ -109,20 +136,30 @@ class XCamInjectorsModern(private val module: XCamModule) {
             val getHolder = svClass.getDeclaredMethod("getHolder")
             module.hook(getHolder).intercept { chain ->
                 val holder = chain.proceed() as? SurfaceHolder
-                holder?.addCallback(object : SurfaceHolder.Callback {
-                    override fun surfaceCreated(h: SurfaceHolder) { 
-                        module.printLog("Modern UI Hook: SurfaceView created")
-                        module.handleSurfaceViewPreview(h) 
-                    }
-                    override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, h2: Int) { 
-                        module.handleSurfaceViewPreview(h) 
-                    }
-                    override fun surfaceDestroyed(h: SurfaceHolder) { 
-                        module.stopCamera1Engine() 
-                    }
-                })
+                if (holder != null) {
+                    module.printLog("UI Hook: SurfaceView getHolder (Holder: ${holder.hashCode()})")
+                    holder.addCallback(object : SurfaceHolder.Callback {
+                        override fun surfaceCreated(h: SurfaceHolder) { 
+                            module.printLog("UI Hook: SurfaceView Callback -> surfaceCreated (Surface: ${h.surface.hashCode()})")
+                            // Wait a bit to see if this surface gets registered in a camera session
+                            uiHandler.postDelayed({
+                                module.handleSurfaceViewPreview(h)
+                            }, 500)
+                        }
+                        override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, h2: Int) { 
+                            module.printLog("UI Hook: SurfaceView Callback -> surfaceChanged ($w x $h2)")
+                            module.handleSurfaceViewPreview(h) 
+                        }
+                        override fun surfaceDestroyed(h: SurfaceHolder) { 
+                            module.printLog("UI Hook: SurfaceView Callback -> surfaceDestroyed")
+                            module.stopCamera1Engine() 
+                        }
+                    })
+                }
                 holder
             }
-        } catch (_: Throwable) {}
+        } catch (e: Throwable) {
+            module.printLog("UI Fallback Hooks failed", e)
+        }
     }
 }

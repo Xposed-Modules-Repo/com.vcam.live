@@ -17,20 +17,40 @@ object XCamCapture {
         targetH: Int,
         rotation: Int,
         mirrored: Boolean,
+        timeMs: Int = 1000,
         printLog: (String) -> Unit
     ): ByteArray? {
+        printLog("Capture Process: Starting for $path (Time: $timeMs ms)")
         return try {
             val rawBitmap: Bitmap? = if (path.lowercase().endsWith(".mp4")) {
                 val retriever = MediaMetadataRetriever()
                 retriever.setDataSource(context, path.toUri())
-                val frame = retriever.getFrameAtTime(1000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                
+                // We use OPTION_CLOSEST_SYNC but try a few ms before to avoid black frames
+                val targetUs = if (timeMs > 100) (timeMs - 100) * 1000L else timeMs * 1000L
+                printLog("Capture Process: Extracting frame at $targetUs us (PREVIOUS_SYNC)")
+                
+                var frame = retriever.getFrameAtTime(targetUs, MediaMetadataRetriever.OPTION_PREVIOUS_SYNC)
+                
+                if (frame == null) {
+                    printLog("Capture Process: PREVIOUS_SYNC failed, trying absolute CLOSEST")
+                    frame = retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                }
+
                 retriever.release()
+                if (frame == null) printLog("Capture Process: FATAL - No frame retrieved")
                 frame
             } else {
+                printLog("Capture Process: Decoding image from $path")
                 context.contentResolver.openInputStream(path.toUri())?.use { BitmapFactory.decodeStream(it) }
             }
 
-            if (rawBitmap == null) return null
+            if (rawBitmap == null) {
+                printLog("Capture Process: Raw bitmap is null")
+                return null
+            }
+            
+            printLog("Capture Process: Source Size ${rawBitmap.width}x${rawBitmap.height}")
 
             val sourceW = rawBitmap.width
             val sourceH = rawBitmap.height
@@ -58,11 +78,14 @@ object XCamCapture {
             val finalBitmap = Bitmap.createBitmap(rawBitmap, offsetX, offsetY, cropW, cropH, matrix, true)
             val out = ByteArrayOutputStream()
             finalBitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+            val result = out.toByteArray()
+            
+            printLog("Capture Process: SUCCESS. Final Size ${finalBitmap.width}x${finalBitmap.height} (${result.size} bytes)")
             
             if (rawBitmap != finalBitmap) rawBitmap.recycle()
             finalBitmap.recycle()
             
-            out.toByteArray()
+            result
         } catch (e: Exception) {
             printLog("createCaptureJpeg error: ${e.message}")
             null

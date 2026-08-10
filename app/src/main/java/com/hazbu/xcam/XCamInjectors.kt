@@ -27,9 +27,15 @@ class XCamInjectors(private val module: XCamModule) {
             methods.forEach { method ->
                 module.hook(method).intercept { chain ->
                     if (module.isCapturingState()) {
-                        module.printLog("Hunter: Success! Intercepted decodeByteArray")
+                        val originalSize = (chain.args.getOrNull(2) as? Int) ?: 0
+                        module.printLog("Hunter: Intercepting decodeByteArray (Original Size: $originalSize bytes)")
+                        
+                        // Default to 1280x1280 or try to guess from app context if possible
+                        // But handleCapture will return the fake frame
                         val replacement = module.handleCapture(1280, 1280)
+                        
                         if (replacement != null) {
+                            module.printLog("Hunter: Injection SUCCESS (New Size: ${replacement.size} bytes)")
                             val newArgs = Array(chain.args.size) { i -> 
                                 when (i) {
                                     0 -> replacement 
@@ -38,6 +44,8 @@ class XCamInjectors(private val module: XCamModule) {
                                 }
                             }
                             return@intercept chain.proceed(newArgs)
+                        } else {
+                            module.printLog("Hunter: Injection FAILED (Replacement is null)")
                         }
                     }
                     chain.proceed()
