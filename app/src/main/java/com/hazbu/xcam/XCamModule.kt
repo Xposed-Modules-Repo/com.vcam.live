@@ -9,11 +9,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.view.PixelCopy
 import android.view.Surface
 import android.view.SurfaceHolder
-import android.graphics.Bitmap
-import java.io.ByteArrayOutputStream
 import androidx.core.net.toUri
 import com.hazbu.xcam.Constants.AUTHORITY
 import io.github.libxposed.api.XposedModule
@@ -21,7 +18,7 @@ import io.github.libxposed.api.XposedModuleInterface
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "v21.9-master"
+    private val xcamVersion = "v22-master"
 
     var mediaPath: String? = null
     var isMirrored = false
@@ -47,8 +44,8 @@ class XCamModule : XposedModule() {
 
     private val ignoreHooks = ThreadLocal.withInitial { false }
 
-    fun isIgnoringHooks(): Boolean = ignoreHooks.get()
-    fun setIgnoringHooks(ignore: Boolean) = ignoreHooks.set(ignore)
+    fun isIgnoringHooks(): Boolean = ignoreHooks.get() ?: false
+    fun setIgnoringHooks(ignore: Boolean) { ignoreHooks.set(ignore) }
 
     private val uiHandler = Handler(Looper.getMainLooper())
     private var xRenderer: XCamRenderer? = null
@@ -218,12 +215,6 @@ class XCamModule : XposedModule() {
         c1Surface = null
         lastST = null
         lastModernSurface = null
-    }
-
-    fun stopEngineWithDelay() {
-        printLog("[System] Camera Close detected, engine will stop in 1s if no new session starts")
-        val runnable = Runnable { stopCamera1Engine() }
-        uiHandler.postAtTime(runnable, "STOP_SIGNAL", android.os.SystemClock.uptimeMillis() + 1000)
     }
 
     private fun cancelPendingStop() {

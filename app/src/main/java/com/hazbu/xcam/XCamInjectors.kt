@@ -1,6 +1,5 @@
 package com.hazbu.xcam
 
-import android.graphics.BitmapFactory
 import com.hazbu.xcam.hooks.*
 import io.github.libxposed.api.XposedModuleInterface
 

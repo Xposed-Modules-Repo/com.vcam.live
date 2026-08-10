@@ -18,7 +18,7 @@ object XCamCapture {
         rotation: Int,
         mirrored: Boolean,
         timeMs: Int = 1000,
-        printLog: (String) -> Unit
+        printLog: (String) -> Unit,
     ): ByteArray? {
         printLog("Capture Process: Starting for $path (Time: $timeMs ms)")
         return try {
