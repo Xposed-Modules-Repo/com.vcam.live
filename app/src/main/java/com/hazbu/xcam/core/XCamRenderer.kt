@@ -1,4 +1,4 @@
-package com.hazbu.xcam
+package com.hazbu.xcam.core
 
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -113,20 +113,15 @@ class XCamRenderer(
         if (mediaW <= 0 || mediaH <= 0) return
         Matrix.setIdentityM(mvpMatrix, 0)
         
-        // 1. Calculate effective source aspect ratio after rotation
         val rotatedSourceAspect = if (rotationAngle % 180 != 0) mediaH.toFloat() / mediaW else mediaW.toFloat() / mediaH
         val targetAspect = viewW / viewH
 
-        // 2. Apply Fit Center scaling
         if (rotatedSourceAspect > targetAspect) {
-            // Source is wider than viewport -> fit to width, scale down height (Letterbox)
             Matrix.scaleM(mvpMatrix, 0, 1f, targetAspect / rotatedSourceAspect, 1f)
         } else {
-            // Source is taller than viewport -> fit to height, scale down width (Pillarbox)
             Matrix.scaleM(mvpMatrix, 0, rotatedSourceAspect / targetAspect, 1f, 1f)
         }
         
-        // 3. Apply Rotation
         Matrix.rotateM(mvpMatrix, 0, -rotationAngle.toFloat(), 0f, 0f, 1f)
         
         if (isMirrored) Matrix.scaleM(mvpMatrix, 0, -1f, 1f, 1f)
