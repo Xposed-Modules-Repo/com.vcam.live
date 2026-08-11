@@ -12,6 +12,7 @@ class XCamInjectors(private val module: XCamModule) {
     private val intentHook = IntentHook(module)
     private val uiHook = UIHook(module)
     private val captureHook = CaptureHook(module)
+    private val imageReaderHook = ImageReaderHook(module)
 
     fun install(param: XposedModuleInterface.PackageReadyParam) {
         // Specialized Hooks
@@ -21,6 +22,7 @@ class XCamInjectors(private val module: XCamModule) {
         intentHook.install(param)
         uiHook.install(param)
         captureHook.install(param)
+        imageReaderHook.install(param)
         
         module.printLog("All integrated hooks installed successfully", null)
     }

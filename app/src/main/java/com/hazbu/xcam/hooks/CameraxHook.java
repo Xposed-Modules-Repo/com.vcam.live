@@ -3,7 +3,6 @@ package com.hazbu.xcam.hooks;
 import com.hazbu.xcam.XCamModule;
 
 import java.lang.reflect.Method;
-import java.util.concurrent.Executor;
 
 import io.github.libxposed.api.XposedModuleInterface;
 
@@ -32,7 +31,7 @@ public class CameraxHook {
 
     private void hookImageCapture(XposedModuleInterface.PackageReadyParam param) {
         try {
-            Class<?> imageCaptureClass = null;
+            Class<?> imageCaptureClass;
             try {
                 imageCaptureClass = param.getClassLoader().loadClass("androidx.camera.core.ImageCapture");
             } catch (ClassNotFoundException e) {

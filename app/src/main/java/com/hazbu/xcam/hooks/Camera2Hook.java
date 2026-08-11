@@ -1,20 +1,15 @@
 package com.hazbu.xcam.hooks;
 
-import android.graphics.ImageFormat;
-import android.hardware.camera2.CameraCaptureSession;
+import android.annotation.SuppressLint;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.OutputConfiguration;
-import android.media.Image;
-import android.media.ImageReader;
 import android.view.Surface;
 
 import com.hazbu.xcam.XCamModule;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
-import java.nio.ByteBuffer;
 import java.util.Collection;
-import java.util.List;
 
 import io.github.libxposed.api.XposedModuleInterface;
 
@@ -35,7 +30,6 @@ public class Camera2Hook {
             hookDiscovery(param);
             hookModernHijack(param);
             hookSurgicalDiverter(param);
-            // Removed ImageReader and CaptureSession hooks to prevent hang
             module.printLog("Camera2 API hooks initialized successfully", null);
         } catch (Throwable t) {
             module.printLog("Failed to initialize Camera2 API hooks: " + t.getMessage(), null);
@@ -44,7 +38,7 @@ public class Camera2Hook {
 
     private void hookDiscovery(XposedModuleInterface.PackageReadyParam param) {
         try {
-            Class<?> cameraDeviceClass = param.getClassLoader().loadClass("android.hardware.camera2.impl.CameraDeviceImpl");
+            @SuppressLint("PrivateApi") Class<?> cameraDeviceClass = param.getClassLoader().loadClass("android.hardware.camera2.impl.CameraDeviceImpl");
             for (Method method : cameraDeviceClass.getDeclaredMethods()) {
                 if (method.getName().startsWith("createCaptureSession")) {
                     module.hook(method).intercept(chain -> {

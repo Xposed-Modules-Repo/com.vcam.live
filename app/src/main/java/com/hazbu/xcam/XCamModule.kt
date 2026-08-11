@@ -18,7 +18,7 @@ import io.github.libxposed.api.XposedModuleInterface
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "v22-master"
+    private val xcamVersion = "v22.5-master"
 
     var mediaPath: String? = null
     var isMirrored = false
@@ -66,6 +66,18 @@ class XCamModule : XposedModule() {
         if (tr != null) Log.e("xCam", fullMsg, tr) else Log.e("xCam", fullMsg)
     }
 
+    fun showToast(message: String) {
+        uiHandler.post {
+            try {
+                mContext?.let {
+                    android.widget.Toast.makeText(it, message, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                printLog("Failed to show toast: ${e.message}")
+            }
+        }
+    }
+
     fun isCapturingState(): Boolean = isCapturing
 
     fun triggerCaptureState() {
@@ -92,6 +104,7 @@ class XCamModule : XposedModule() {
         }, 3000)
     }
 
+    @SuppressLint("DiscouragedPrivateApi")
     private fun getSurfaceId(surface: Surface?): Long {
         if (surface == null) return -1L
         return try {
@@ -360,7 +373,7 @@ class XCamModule : XposedModule() {
                     try {
                         printLog("[Step 2] Engine: Preparing for ID: $surfaceId")
                         prepareAsync()
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         isPlayerBusy = false
                         printLog("Engine: prepareAsync fatal error")
                     }

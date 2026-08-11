@@ -4,7 +4,6 @@ import android.graphics.SurfaceTexture;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.SurfaceHolder;
-import android.view.TextureView;
 
 import androidx.annotation.NonNull;
 import com.hazbu.xcam.XCamModule;
