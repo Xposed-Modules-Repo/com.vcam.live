@@ -18,7 +18,7 @@ import io.github.libxposed.api.XposedModuleInterface
 
 class XCamModule : XposedModule() {
 
-    private val xcamVersion = "v22.5-master"
+    private val xcamVersion = "v22.7-master"
 
     var mediaPath: String? = null
     var isMirrored = false
