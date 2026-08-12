@@ -9,9 +9,23 @@ class SurfaceManager(private val logAction: (String) -> Unit) {
     private val nonPreviewSurfaceIds = mutableSetOf<Long>()
     var previewSwapped = false
 
+    var sessionGeneration = 0
+        private set
+
+    fun incrementSessionGeneration() {
+        sessionGeneration++
+        logAction("[System] NEW CAMERA SESSION | Generation: $sessionGeneration")
+    }
+
     fun registerPreviewSurface(surface: Surface) {
         if (surface.isValid) {
             val id = SystemUtils.getSurfaceId(surface)
+            logAction(
+                "[SURFACE REGISTER] " +
+                        "identity=${System.identityHashCode(surface)} " +
+                        "id=$id " +
+                        "surface=$surface"
+            )
             if (nonPreviewSurfaceIds.contains(id)) {
                 logAction("[Surface] Ignoring non-preview output | ID: $id")
                 return
@@ -33,8 +47,17 @@ class SurfaceManager(private val logAction: (String) -> Unit) {
     fun isPreviewSurface(surface: Surface?): Boolean {
         if (surface == null) return false
         val id = SystemUtils.getSurfaceId(surface)
-        if (nonPreviewSurfaceIds.contains(id)) return false
         val exists = previewSurfaceIds.contains(id)
+
+        logAction(
+            "[SURFACE DEBUG] " +
+                    "identity=${System.identityHashCode(surface)} " +
+                    "id=$id " +
+                    "surface=$surface " +
+                    "preview=$exists"
+        )
+
+        if (nonPreviewSurfaceIds.contains(id)) return false
         if (!exists) {
             if (surface.toString().contains("SurfaceTexture")) {
                 registerPreviewSurface(surface)
@@ -43,6 +66,17 @@ class SurfaceManager(private val logAction: (String) -> Unit) {
             logAction("[Check] Surface ID $id is NOT in preview list | Current IDs: $previewSurfaceIds")
         }
         return exists
+    }
+
+    fun logSessionOutput(surface: Surface) {
+        val id = SystemUtils.getSurfaceId(surface)
+        logAction(
+            "[SESSION OUTPUT]\n" +
+                    "identity=${System.identityHashCode(surface)}\n" +
+                    "id=$id\n" +
+                    "preview=${previewSurfaceIds.contains(id)}\n" +
+                    "surface=$surface"
+        )
     }
 
     fun clearPreviewSurfaces(isEnginePlaying: Boolean) {

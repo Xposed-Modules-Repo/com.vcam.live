@@ -28,6 +28,7 @@ class XCamEngine(
     
     @Volatile
     private var isPlayerBusy = false
+    private var lastInjectedGeneration = -1
 
     fun isPlaying() = c1MediaPlayer?.isPlaying == true
     fun getCurrentPosition() = c1MediaPlayer?.currentPosition ?: 0
@@ -146,22 +147,31 @@ class XCamEngine(
         synchronized(this) {
             val surfaceId = SystemUtils.getSurfaceId(surface)
             val currentEngineId = SystemUtils.getSurfaceId(c1Surface)
+            val currentGeneration = surfaceManager.sessionGeneration
 
-            logAction("[Inject] Request for ID: $surfaceId | Current playing ID: $currentEngineId")
+            logAction("[Inject] Request for ID: $surfaceId | Gen: $currentGeneration | Last: $lastInjectedGeneration")
 
             if (!surface.isValid) {
                 logAction("[Inject] ABORTED: Surface is INVALID")
                 return
             }
 
-            if (surfaceId == currentEngineId && c1MediaPlayer?.isPlaying == true) {
-                logAction("[Inject] IGNORED: Already playing on this surface")
+            if (surfaceId == currentEngineId && 
+                c1MediaPlayer?.isPlaying == true && 
+                currentGeneration == lastInjectedGeneration) {
+                logAction("[Inject] IGNORED: Already playing on this surface and session")
                 return
             }
 
             try {
-                logAction("[Inject] FORCING RESTART for new session...")
+                if (currentGeneration != lastInjectedGeneration) {
+                    logAction("[Inject] NEW SESSION detected (Gen $currentGeneration). Forcing restart.")
+                } else {
+                    logAction("[Inject] FORCING RESTART for new surface...")
+                }
+                
                 stopCamera1Engine()
+                lastInjectedGeneration = currentGeneration
 
                 isPlayerBusy = true
                 c1Surface = surface

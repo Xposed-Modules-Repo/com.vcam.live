@@ -59,6 +59,9 @@ class XCamModule : XposedModule() {
     fun registerImageReaderSurface(surface: Surface, format: Int, width: Int, height: Int) =
         surfaceManager.registerImageReaderSurface(surface, format, width, height)
     fun isPreviewSurface(surface: Surface?): Boolean = surfaceManager.isPreviewSurface(surface)
+    fun logSessionOutput(surface: Surface) = surfaceManager.logSessionOutput(surface)
+    fun incrementSessionGeneration() = surfaceManager.incrementSessionGeneration()
+    fun getSessionGeneration() = surfaceManager.sessionGeneration
     fun clearPreviewSurfaces() = surfaceManager.clearPreviewSurfaces(engine.isPlaying())
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {

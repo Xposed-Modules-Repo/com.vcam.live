@@ -43,6 +43,7 @@ public class Camera2Hook {
                 if (method.getName().startsWith("createCaptureSession")) {
                     module.hook(method).intercept(chain -> {
                         module.printLog("[Discovery] CameraDeviceImpl#" + method.getName(), null);
+                        module.incrementSessionGeneration();
                         module.clearPreviewSurfaces();
                         for (Object arg : chain.getArgs()) {
                             inspectDiscoveryArgument(arg);
@@ -58,10 +59,15 @@ public class Camera2Hook {
 
     private void inspectDiscoveryArgument(Object arg) {
         if (arg instanceof Surface) {
-            module.registerPreviewSurface((Surface) arg);
+            Surface s = (Surface) arg;
+            module.logSessionOutput(s);
+            module.registerPreviewSurface(s);
         } else if (arg instanceof OutputConfiguration) {
             Surface s = ((OutputConfiguration) arg).getSurface();
-            if (s != null) module.registerPreviewSurface(s);
+            if (s != null) {
+                module.logSessionOutput(s);
+                module.registerPreviewSurface(s);
+            }
         } else if (arg instanceof Collection) {
             for (Object item : (Collection<?>) arg) inspectDiscoveryArgument(item);
         }
