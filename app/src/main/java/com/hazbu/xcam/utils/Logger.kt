@@ -5,7 +5,7 @@ import io.github.libxposed.api.XposedInterface
 
 object Logger {
     private const val TAG = "xCam"
-    private const val VERSION = "v22.10-master"
+    private const val VERSION = "v22.11-master"
 
     enum class Level(val xPriority: Int) {
         DEBUG(XposedInterface.PRIORITY_DEFAULT),

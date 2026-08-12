@@ -11,25 +11,32 @@ class SurfaceManager(private val logAction: (String) -> Unit) {
 
     var sessionGeneration = 0
         private set
+    private var lastIncrementTime = 0L
+    private var lastClearedGen = -1
 
     private fun logSurface(msg: String) {
         logAction("[SURFACE] $msg")
     }
 
-    fun incrementSessionGeneration() {
+    fun incrementSessionGeneration(): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - lastIncrementTime < 500) return false // Debounce rapid triggers
+        
         sessionGeneration++
-        logSurface("[*] NEW CAMERA SESSION")
+        lastIncrementTime = now
+        logSurface("[*] NEW CAMERA SESSION (Gen $sessionGeneration)")
+        return true
     }
 
     fun registerPreviewSurface(surface: Surface) {
         if (surface.isValid) {
             val id = SystemUtils.getSurfaceId(surface)
-            logSurface("[*] REGISTER: id=$id surface=$surface")
             if (nonPreviewSurfaceIds.contains(id)) {
                 logSurface("[!] Ignoring non-preview output | ID: $id")
                 return
             }
             if (previewSurfaceIds.add(id)) {
+                logSurface("[*] REGISTER: id=$id surface=$surface")
                 logSurface("[+] Registered as PREVIEW | ID: $id")
             }
         }
@@ -67,12 +74,15 @@ class SurfaceManager(private val logAction: (String) -> Unit) {
     }
 
     fun clearPreviewSurfaces(isEnginePlaying: Boolean) {
+        if (lastClearedGen == sessionGeneration) return // Already handled this generation
+        lastClearedGen = sessionGeneration
+        previewSwapped = false // Always allow re-swapping on a new generation
+
         if (isEnginePlaying) {
             logSurface("[*] Keep IDs (Engine is playing)")
             return
         }
         logSurface("[*] Clearing Surface IDs")
         previewSurfaceIds.clear()
-        previewSwapped = false
     }
 }

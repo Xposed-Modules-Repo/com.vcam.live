@@ -62,12 +62,18 @@ public class Camera2Hook {
         if (arg instanceof Surface) {
             Surface s = (Surface) arg;
             module.logSessionOutput(s);
-            module.registerPreviewSurface(s);
+            String sStr = s.toString();
+            if (sStr.contains("SurfaceTexture") || sStr.contains("SurfaceView")) {
+                module.registerPreviewSurface(s);
+            }
         } else if (arg instanceof OutputConfiguration) {
             Surface s = ((OutputConfiguration) arg).getSurface();
             if (s != null) {
                 module.logSessionOutput(s);
-                module.registerPreviewSurface(s);
+                String sStr = s.toString();
+                if (sStr.contains("SurfaceTexture") || sStr.contains("SurfaceView")) {
+                    module.registerPreviewSurface(s);
+                }
             }
         } else if (arg instanceof Collection) {
             for (Object item : (Collection<?>) arg) inspectDiscoveryArgument(item);
@@ -82,8 +88,11 @@ public class Camera2Hook {
                     Object firstArg = !chain.getArgs().isEmpty() ? chain.getArgs().get(0) : null;
                     if (firstArg instanceof Surface && ((Surface) firstArg).isValid() && module.getMediaPath() != null) {
                         Surface surface = (Surface) firstArg;
-                        module.registerPreviewSurface(surface);
                         String sStr = surface.toString();
+                        if (sStr.contains("SurfaceTexture") || sStr.contains("SurfaceView")) {
+                            module.registerPreviewSurface(surface);
+                        }
+                        
                         if (sStr.contains("SurfaceTexture") && !module.getPreviewSwapped()) {
                             module.logHook("[!] Action: Swapping Preview Surface via OutputConfiguration");
                             module.setPreviewSwapped(true);
