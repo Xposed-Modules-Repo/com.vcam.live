@@ -13,7 +13,7 @@ class SurfaceManager(private val logAction: (String) -> Unit) {
         private set
 
     private fun logSurface(msg: String) {
-        logAction("[Gen: $sessionGeneration] [SURFACE] $msg")
+        logAction("[SURFACE] $msg")
     }
 
     fun incrementSessionGeneration() {

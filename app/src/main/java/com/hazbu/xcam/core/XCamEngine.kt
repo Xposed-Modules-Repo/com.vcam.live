@@ -34,18 +34,15 @@ class XCamEngine(
     fun getCurrentPosition() = c1MediaPlayer?.currentPosition ?: 0
 
     private fun logPipe(msg: String) {
-        val gen = surfaceManager.sessionGeneration
-        logAction("xCam [Gen: $gen] [PIPELINE] $msg")
+        logAction("[PIPELINE] $msg")
     }
 
     private fun logMedia(msg: String) {
-        val gen = surfaceManager.sessionGeneration
-        logAction("xCam [Gen: $gen] [MEDIA] $msg")
+        logAction("[MEDIA] $msg")
     }
 
     private fun logError(msg: String, tr: Throwable? = null) {
-        val gen = surfaceManager.sessionGeneration
-        logAction("xCam [Gen: $gen] [PIPELINE] [!] ERROR: $msg ${tr?.message ?: ""}")
+        logAction("[PIPELINE] [!] ERROR: $msg ${tr?.message ?: ""}")
     }
 
     fun stopCamera1Engine() {

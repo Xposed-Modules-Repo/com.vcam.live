@@ -64,12 +64,7 @@ class XCamRenderer(
                     setOnPreparedListener { 
                         mediaW = it.videoWidth
                         mediaH = it.videoHeight
-                        logRender("[+] Media Prepared: ${mediaW}x${mediaH}")
                         it.start() 
-                    }
-                    setOnErrorListener { _, what, extra ->
-                        logRender("[!] MediaPlayer Error ($what, $extra)")
-                        true
                     }
                     prepareAsync()
                 }

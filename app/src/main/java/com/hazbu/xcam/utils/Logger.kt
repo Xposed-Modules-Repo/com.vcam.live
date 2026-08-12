@@ -10,8 +10,8 @@ object Logger {
     enum class Level(val xPriority: Int) {
         DEBUG(XposedInterface.PRIORITY_DEFAULT),
         INFO(XposedInterface.PRIORITY_DEFAULT),
-        WARN(XposedInterface.PRIORITY_HIGHEST),
-        ERROR(XposedInterface.PRIORITY_HIGHEST)
+        WARN(XposedInterface.PRIORITY_DEFAULT),
+        ERROR(XposedInterface.PRIORITY_DEFAULT)
     }
 
     fun d(xi: XposedInterface?, msg: String) = printLog(xi, msg, Level.DEBUG)
