@@ -5,7 +5,7 @@ import io.github.libxposed.api.XposedInterface
 
 object Logger {
     private const val TAG = "xCam"
-    private const val VERSION = "v22.7-master"
+    private const val VERSION = "v22.10-master"
 
     fun printLog(xi: XposedInterface?, msg: String, tr: Throwable? = null) {
         val fullMsg = "xCam: [$VERSION] $msg"

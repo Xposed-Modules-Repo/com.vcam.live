@@ -56,6 +56,8 @@ class XCamModule : XposedModule() {
     }
 
     fun registerPreviewSurface(surface: Surface) = surfaceManager.registerPreviewSurface(surface)
+    fun registerImageReaderSurface(surface: Surface, format: Int, width: Int, height: Int) =
+        surfaceManager.registerImageReaderSurface(surface, format, width, height)
     fun isPreviewSurface(surface: Surface?): Boolean = surfaceManager.isPreviewSurface(surface)
     fun clearPreviewSurfaces() = surfaceManager.clearPreviewSurfaces(engine.isPlaying())
 
@@ -113,6 +115,18 @@ class XCamModule : XposedModule() {
 
     fun handleCapture(width: Int, height: Int): ByteArray? {
         return captureManager.handleCapture(
+            path = settingsManager.mediaPath,
+            width = width,
+            height = height,
+            rotationAngle = settingsManager.rotationAngle,
+            isMirrored = settingsManager.isMirrored,
+            isIgnoringHooks = { isIgnoringHooks() },
+            setIgnoringHooks = { setIgnoringHooks(it) }
+        )
+    }
+
+    fun handleStreamFrame(width: Int, height: Int): ByteArray? {
+        return captureManager.handleStreamFrame(
             path = settingsManager.mediaPath,
             width = width,
             height = height,

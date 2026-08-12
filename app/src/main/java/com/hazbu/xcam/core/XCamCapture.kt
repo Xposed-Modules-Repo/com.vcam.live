@@ -26,12 +26,15 @@ object XCamCapture {
             val rawBitmap: Bitmap? = if (path.lowercase().endsWith(".mp4")) {
                 val retriever = MediaMetadataRetriever()
                 retriever.setDataSource(context, path.toUri())
-                
-                val targetUs = if (timeMs > 100) (timeMs - 100) * 1000L else timeMs * 1000L
+
+                val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toLongOrNull() ?: 0L
+                val loopedTimeMs = if (durationMs > 0L) timeMs.toLong() % durationMs else timeMs.toLong()
+                val targetUs = if (loopedTimeMs > 100L) (loopedTimeMs - 100L) * 1000L else loopedTimeMs * 1000L
                 printLog("Capture Process: Extracting frame at $targetUs us (PREVIOUS_SYNC)")
-                
+
                 var frame = retriever.getFrameAtTime(targetUs, MediaMetadataRetriever.OPTION_CLOSEST)
-                
+
                 if (frame == null) {
                     printLog("Capture Process: PREVIOUS_SYNC failed, trying absolute CLOSEST")
                     frame = retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_PREVIOUS_SYNC)
@@ -49,17 +52,17 @@ object XCamCapture {
                 printLog("Capture Process: Raw bitmap is null")
                 return null
             }
-            
+
             printLog("Capture Process: Source Size ${rawBitmap.width}x${rawBitmap.height}")
 
             val sourceW = rawBitmap.width
             val sourceH = rawBitmap.height
-            
+
             val rotatedSourceW = if (rotation % 180 != 0) sourceH else sourceW
             val rotatedSourceH = if (rotation % 180 != 0) sourceW else sourceH
-            
+
             val scale = Math.min(targetW.toFloat() / rotatedSourceW, targetH.toFloat() / rotatedSourceH)
-            
+
             val matrix = AndroidMatrix()
             matrix.postScale(scale, scale)
             if (rotation != 0) matrix.postRotate(rotation.toFloat())
@@ -70,7 +73,7 @@ object XCamCapture {
             val finalBitmap = createBitmap(targetW, targetH)
             val canvas = android.graphics.Canvas(finalBitmap)
             canvas.drawColor(android.graphics.Color.BLACK)
-            
+
             val left = (targetW - transformedSource.width) / 2f
             val top = (targetH - transformedSource.height) / 2f
             canvas.drawBitmap(transformedSource, left, top, null)
@@ -78,9 +81,9 @@ object XCamCapture {
             val out = ByteArrayOutputStream()
             finalBitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
             val result = out.toByteArray()
-            
+
             printLog("Capture Process: SUCCESS. Final Size ${finalBitmap.width}x${finalBitmap.height} (${result.size} bytes)")
-            
+
             if (rawBitmap != transformedSource) rawBitmap.recycle()
             transformedSource.recycle()
             finalBitmap.recycle()

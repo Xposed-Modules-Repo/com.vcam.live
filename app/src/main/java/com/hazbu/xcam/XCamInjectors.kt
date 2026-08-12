@@ -13,6 +13,7 @@ class XCamInjectors(private val module: XCamModule) {
     private val uiHook = UIHook(module)
     private val captureHook = CaptureHook(module)
     private val imageReaderHook = ImageReaderHook(module)
+    private val webRtcHook = WebRtcHook(module)
 
     fun install(param: XposedModuleInterface.PackageReadyParam) {
         // Specialized Hooks
@@ -23,6 +24,7 @@ class XCamInjectors(private val module: XCamModule) {
         uiHook.install(param)
         captureHook.install(param)
         imageReaderHook.install(param)
+        webRtcHook.install(param)
         
         module.printLog("All integrated hooks installed successfully", null)
     }

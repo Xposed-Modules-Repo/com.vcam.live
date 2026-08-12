@@ -3,6 +3,8 @@ package com.hazbu.xcam.core
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import java.util.concurrent.Executors
 
 class CaptureManager(
     private val contextProvider: () -> Context?,
@@ -19,6 +21,14 @@ class CaptureManager(
 
     var lastCapturePulseTime = 0L
     var captureTimeMs = 0
+
+    @Volatile private var cachedStreamFrame: ByteArray? = null
+    private var streamStartedAtMs = 0L
+    private var lastStreamRequestAtMs = 0L
+    private var streamExtractionRunning = false
+    private var streamKey: String? = null
+    private val streamExecutor = Executors.newSingleThreadExecutor()
+    private val streamFrameIntervalMs = 500L
 
     private val uiHandler = Handler(Looper.getMainLooper())
 
@@ -78,5 +88,64 @@ class CaptureManager(
                 setIgnoringHooks(false)
             }
         }
+    }
+
+    /**
+     * Returns the newest decoded video frame without blocking a camera callback.
+     * A lower refresh rate is deliberate: converting a high-resolution YUV
+     * ImageReader frame in Java is expensive, while the last frame remains safe
+     * to deliver until the worker has decoded the next one.
+     */
+    fun handleStreamFrame(
+        path: String?,
+        width: Int,
+        height: Int,
+        rotationAngle: Int,
+        isMirrored: Boolean,
+        isIgnoringHooks: () -> Boolean,
+        setIgnoringHooks: (Boolean) -> Unit
+    ): ByteArray? {
+        val context = contextProvider() ?: return null
+        val actualPath = path ?: return null
+        if (!actualPath.lowercase().endsWith(".mp4")) {
+            return handleCapture(path, width, height, rotationAngle, isMirrored, isIgnoringHooks, setIgnoringHooks)
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        val key = "$actualPath|$width|$height|$rotationAngle|$isMirrored"
+        var requestPositionMs = -1L
+        synchronized(this) {
+            if (streamKey != key) {
+                streamKey = key
+                cachedStreamFrame = null
+                streamStartedAtMs = now
+                lastStreamRequestAtMs = 0L
+                streamExtractionRunning = false
+            }
+            if (!streamExtractionRunning && now - lastStreamRequestAtMs >= streamFrameIntervalMs) {
+                streamExtractionRunning = true
+                lastStreamRequestAtMs = now
+                requestPositionMs = now - streamStartedAtMs
+            }
+        }
+
+        if (requestPositionMs >= 0L) {
+            val frameTimeMs = requestPositionMs.toInt().coerceAtLeast(0)
+            streamExecutor.execute {
+                try {
+                    setIgnoringHooks(true)
+                    val frame = XCamCapture.createJpeg(
+                        context, actualPath, width, height, rotationAngle, isMirrored, frameTimeMs, logAction
+                    )
+                    if (frame != null) cachedStreamFrame = frame
+                } catch (e: Throwable) {
+                    logAction("Stream frame extraction failed: ${e.message}")
+                } finally {
+                    setIgnoringHooks(false)
+                    synchronized(this) { streamExtractionRunning = false }
+                }
+            }
+        }
+        return cachedStreamFrame
     }
 }
