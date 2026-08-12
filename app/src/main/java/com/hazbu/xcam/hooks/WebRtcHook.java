@@ -24,14 +24,15 @@ public final class WebRtcHook {
 
     public void install(XposedModuleInterface.PackageReadyParam param) {
         try {
+            module.logHook("[*] Initializing WebRTC Support");
             Class<?> helper = param.getClassLoader().loadClass("org.webrtc.SurfaceTextureHelper");
             hookStartListening(helper);
             hookStopListening(helper);
-            module.printLog("WebRTC support enabled", null);
+            module.logHook("[+] WebRTC support hooks installed");
         } catch (ClassNotFoundException ignored) {
             // WebRTC is optional; do not make ordinary camera apps fail.
         } catch (Throwable t) {
-            module.printLog("WebRTC hook setup failed: " + t.getMessage(), null);
+            module.logHook("[!] WebRTC hook setup failed: " + t.getMessage());
         }
     }
 
@@ -45,15 +46,17 @@ public final class WebRtcHook {
                 registerHelperSurface(chain.getThisObject());
                 return result;
             });
+            module.logHook("[+] Hooked: SurfaceTextureHelper#startListening");
         }
     }
 
     private void hookStopListening(Class<?> helper) throws NoSuchMethodException {
         Method stopListening = helper.getDeclaredMethod("stopListening");
         module.hook(stopListening).intercept(chain -> {
-            module.printLog("[WebRTC] SurfaceTextureHelper stopped", null);
+            module.logHook("[*] Activity: WebRTC SurfaceTextureHelper stopped");
             return chain.proceed();
         });
+        module.logHook("[+] Hooked: SurfaceTextureHelper#stopListening");
     }
 
     private void registerHelperSurface(Object helper) {
@@ -64,12 +67,12 @@ public final class WebRtcHook {
             Surface surface = new Surface((SurfaceTexture) value);
             try {
                 module.registerPreviewSurface(surface);
-                module.printLog("[WebRTC] Camera frame surface registered", null);
+                module.logHook("[+] Activity: WebRTC Camera frame surface registered");
             } finally {
                 surface.release();
             }
         } catch (Throwable t) {
-            module.printLog("[WebRTC] Could not register frame surface: " + t.getMessage(), null);
+            module.logHook("[!] WebRTC: Could not register frame surface: " + t.getMessage());
         }
     }
 }

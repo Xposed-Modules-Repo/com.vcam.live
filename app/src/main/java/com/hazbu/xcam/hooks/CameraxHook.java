@@ -22,10 +22,10 @@ public class CameraxHook {
 
     public void install(XposedModuleInterface.PackageReadyParam param) {
         try {
-            module.printLog("Initializing CameraX API hooks (Logging only)", null);
+            module.logHook("[*] Initializing CameraX (Logging only)");
             hookImageCapture(param);
         } catch (Throwable t) {
-            module.printLog("Failed to initialize CameraX API hooks: " + t.getMessage(), null);
+            module.logHook("[!] Failed to initialize CameraX hooks: " + t.getMessage());
         }
     }
 
@@ -42,14 +42,15 @@ public class CameraxHook {
                 if (m.getName().equals("takePicture")) {
                     module.hook(m).intercept(chain -> {
                         if (module.getMediaPath() != null) {
-                            module.printLog("CameraX takePicture detected - relying on Camera2 hooks", null);
+                            module.logHook("[*] Activity: CameraX#takePicture detected");
                         }
                         return chain.proceed();
                     });
+                    module.logHook("[+] Hooked: CameraX#takePicture");
                 }
             }
         } catch (Throwable t) {
-            module.printLog("Failed to hook CameraX ImageCapture: " + t.getMessage(), null);
+            module.logHook("[!] Failed to hook CameraX ImageCapture: " + t.getMessage());
         }
     }
 }

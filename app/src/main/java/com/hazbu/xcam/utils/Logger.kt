@@ -7,9 +7,30 @@ object Logger {
     private const val TAG = "xCam"
     private const val VERSION = "v22.10-master"
 
-    fun printLog(xi: XposedInterface?, msg: String, tr: Throwable? = null) {
+    enum class Level(val xPriority: Int) {
+        DEBUG(XposedInterface.PRIORITY_DEFAULT),
+        INFO(XposedInterface.PRIORITY_DEFAULT),
+        WARN(XposedInterface.PRIORITY_HIGHEST),
+        ERROR(XposedInterface.PRIORITY_HIGHEST)
+    }
+
+    fun d(xi: XposedInterface?, msg: String) = printLog(xi, msg, Level.DEBUG)
+    fun i(xi: XposedInterface?, msg: String) = printLog(xi, msg, Level.INFO)
+    fun w(xi: XposedInterface?, msg: String, tr: Throwable? = null) = printLog(xi, msg, Level.WARN, tr)
+    fun e(xi: XposedInterface?, msg: String, tr: Throwable? = null) = printLog(xi, msg, Level.ERROR, tr)
+
+    fun printLog(xi: XposedInterface?, msg: String, level: Level = Level.ERROR, tr: Throwable? = null) {
         val fullMsg = "xCam: [$VERSION] $msg"
-        xi?.log(XposedInterface.PRIORITY_HIGHEST, TAG, fullMsg)
-        if (tr != null) Log.e(TAG, fullMsg, tr) else Log.e(TAG, fullMsg)
+        
+        // Log to Xposed
+        xi?.log(level.xPriority, TAG, fullMsg)
+        
+        // Log to Android Logcat
+        when (level) {
+            Level.DEBUG -> Log.d(TAG, fullMsg)
+            Level.INFO -> Log.i(TAG, fullMsg)
+            Level.WARN -> Log.w(TAG, fullMsg, tr)
+            Level.ERROR -> Log.e(TAG, fullMsg, tr)
+        }
     }
 }

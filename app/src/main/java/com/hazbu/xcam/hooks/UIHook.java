@@ -27,11 +27,11 @@ public class UIHook {
 
     public void install(XposedModuleInterface.PackageReadyParam param) {
         try {
-            module.printLog("Initializing UI Fallback hooks", null);
+            module.logHook("[*] Initializing UI Fallback Hooks");
             hookTextureView(param);
             hookSurfaceView(param);
         } catch (Throwable t) {
-            module.printLog("Failed to initialize UI Fallback hooks: " + t.getMessage(), null);
+            module.logHook("[!] Failed to initialize UI Fallback hooks: " + t.getMessage());
         }
     }
 
@@ -42,11 +42,12 @@ public class UIHook {
             module.hook(setSt).intercept(chain -> {
                 SurfaceTexture st = (SurfaceTexture) chain.getArgs().get(0);
                 if (st != null) {
-                    module.printLog("UI Hook: TextureView setSurfaceTexture", null);
+                    module.logHook("[*] Activity: TextureView#setSurfaceTexture detected");
                     module.handleCamera1Preview(st);
                 }
                 return chain.proceed();
             });
+            module.logHook("[+] Hooked: TextureView#setSurfaceTexture");
         } catch (Throwable ignored) {}
     }
 
@@ -57,11 +58,11 @@ public class UIHook {
             module.hook(getHolder).intercept(chain -> {
                 SurfaceHolder holder = (SurfaceHolder) chain.proceed();
                 if (holder != null) {
-                    module.printLog("UI Hook: SurfaceView getHolder", null);
+                    module.logHook("[*] Activity: SurfaceView#getHolder detected");
                     holder.addCallback(new SurfaceHolder.Callback() {
                         @Override
                         public void surfaceCreated(@NonNull SurfaceHolder h) {
-                            module.printLog("UI Hook: SurfaceView Callback -> surfaceCreated", null);
+                            module.logHook("[*] Activity: SurfaceView Callback -> surfaceCreated");
                             uiHandler.postDelayed(() -> module.handleSurfaceViewPreview(h), 500);
                         }
 
@@ -78,6 +79,7 @@ public class UIHook {
                 }
                 return holder;
             });
+            module.logHook("[+] Hooked: SurfaceView#getHolder");
         } catch (Throwable ignored) {}
     }
 }

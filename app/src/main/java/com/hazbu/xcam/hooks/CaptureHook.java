@@ -28,7 +28,7 @@ public class CaptureHook {
 
     public void install(XposedModuleInterface.PackageReadyParam param) {
         try {
-            module.printLog("Installing Consolidated Capture Hooks", null);
+            module.logHook("[*] Initializing Capture Diversion Hooks");
             
             // 1. BitmapFactory (Byte Array & Stream)
             hookBitmapFactory(param);
@@ -42,8 +42,9 @@ public class CaptureHook {
             // 4. ContentResolver (MediaStore / Scoped Storage)
             hookMediaStore(param);
             
+            module.logHook("[+] Capture Diversion Hooks installed successfully");
         } catch (Throwable t) {
-            module.printLog("Capture Hooks installation failed", t);
+            module.logHook("[!] Capture Hooks installation failed: " + t.getMessage());
         }
     }
 
@@ -57,7 +58,7 @@ public class CaptureHook {
                         if (module.isCapturingState() && module.getMediaPath() != null) {
                             byte[] injected = module.handleCapture(0, 0); // Use 0,0 for default/cached
                             if (injected != null) {
-                                module.printLog("CaptureHook: Injected into decodeByteArray", null);
+                                module.logHook("[*] Activity: Captured -> Injected into BitmapFactory#decodeByteArray");
                                 Object[] args = chain.getArgs().toArray();
                                 args[0] = injected;
                                 if (args.length >= 3) args[2] = injected.length;
@@ -66,6 +67,7 @@ public class CaptureHook {
                         }
                         return chain.proceed();
                     });
+                    module.logHook("[+] Hooked: BitmapFactory#decodeByteArray");
                 }
                 
                 // 2. Hook decodeStream - Return injected Bitmap directly if capturing
@@ -86,7 +88,7 @@ public class CaptureHook {
                                     
                                     Bitmap bitmap = BitmapFactory.decodeByteArray(injected, 0, injected.length, opts);
                                     if (bitmap != null) {
-                                        module.printLog("CaptureHook: decodeStream -> Injected virtual Bitmap", null);
+                                        module.logHook("[*] Activity: Captured -> Injected virtual Bitmap into BitmapFactory#decodeStream");
                                         return bitmap;
                                     }
                                 } finally {
@@ -96,6 +98,7 @@ public class CaptureHook {
                         }
                         return chain.proceed();
                     });
+                    module.logHook("[+] Hooked: BitmapFactory#decodeStream");
                 }
             }
         } catch (Throwable ignored) {}
@@ -115,10 +118,10 @@ public class CaptureHook {
                                 module.setIgnoringHooks(true);
                                 os.write(injected);
                                 os.flush();
-                                module.printLog("CaptureHook: Injected into Bitmap.compress", null);
+                                module.logHook("[*] Activity: Captured -> Injected into Bitmap#compress");
                                 return true;
                             } catch (Throwable t) {
-                                module.printLog("Bitmap.compress injection failed", t);
+                                module.logHook("[!] Bitmap#compress injection FAILED: " + t.getMessage());
                             } finally {
                                 module.setIgnoringHooks(false);
                             }
@@ -127,6 +130,7 @@ public class CaptureHook {
                 }
                 return chain.proceed();
             });
+            module.logHook("[+] Hooked: Bitmap#compress");
         } catch (Throwable ignored) {}
     }
 
@@ -143,7 +147,7 @@ public class CaptureHook {
                     if (data != null && len > 100 && (data[0] & 0xFF) == 0xFF && (data[1] & 0xFF) == 0xD8) {
                         byte[] injected = module.handleCapture(1280, 1280);
                         if (injected != null) {
-                            module.printLog("CaptureHook: Injected into FileOutputStream.write (" + len + " bytes)", null);
+                            module.logHook("[*] Activity: Captured -> Injected into FileOutputStream#write (" + len + " bytes)");
                             Object[] args = chain.getArgs().toArray();
                             args[0] = injected;
                             args[1] = 0;
@@ -154,6 +158,7 @@ public class CaptureHook {
                 }
                 return chain.proceed();
             });
+            module.logHook("[+] Hooked: FileOutputStream#write");
         } catch (Throwable ignored) {}
     }
 
@@ -177,9 +182,9 @@ public class CaptureHook {
                                 FileOutputStream fos = new FileOutputStream(pfd.getFileDescriptor());
                                 fos.write(injected);
                                 fos.flush();
-                                module.printLog("CaptureHook: Injected into MediaStore FD: " + uri, null);
+                                module.logHook("[*] Activity: Captured -> Injected into MediaStore FD: " + uri);
                             } catch (Throwable t) {
-                                module.printLog("MediaStore injection error", t);
+                                module.logHook("[!] MediaStore injection error: " + t.getMessage());
                             } finally {
                                 module.setIgnoringHooks(false);
                             }
@@ -189,6 +194,7 @@ public class CaptureHook {
                 }
                 return chain.proceed();
             });
+            module.logHook("[+] Hooked: ContentResolver#openFileDescriptor");
         } catch (Throwable ignored) {}
     }
 }

@@ -12,26 +12,25 @@ class SurfaceManager(private val logAction: (String) -> Unit) {
     var sessionGeneration = 0
         private set
 
+    private fun logSurface(msg: String) {
+        logAction("[Gen: $sessionGeneration] [SURFACE] $msg")
+    }
+
     fun incrementSessionGeneration() {
         sessionGeneration++
-        logAction("[System] NEW CAMERA SESSION | Generation: $sessionGeneration")
+        logSurface("[*] NEW CAMERA SESSION")
     }
 
     fun registerPreviewSurface(surface: Surface) {
         if (surface.isValid) {
             val id = SystemUtils.getSurfaceId(surface)
-            logAction(
-                "[SURFACE REGISTER] " +
-                        "identity=${System.identityHashCode(surface)} " +
-                        "id=$id " +
-                        "surface=$surface"
-            )
+            logSurface("[*] REGISTER: id=$id surface=$surface")
             if (nonPreviewSurfaceIds.contains(id)) {
-                logAction("[Surface] Ignoring non-preview output | ID: $id")
+                logSurface("[!] Ignoring non-preview output | ID: $id")
                 return
             }
             if (previewSurfaceIds.add(id)) {
-                logAction("[Step 1] Surface Registered as PREVIEW | ID: $id")
+                logSurface("[+] Registered as PREVIEW | ID: $id")
             }
         }
     }
@@ -41,7 +40,7 @@ class SurfaceManager(private val logAction: (String) -> Unit) {
         val id = SystemUtils.getSurfaceId(surface)
         nonPreviewSurfaceIds.add(id)
         previewSurfaceIds.remove(id)
-        logAction("[ImageReader] Registered output | ID: $id | ${width}x${height} | format=0x${format.toString(16)}")
+        logSurface("[+] ImageReader Registered | ID: $id | ${width}x${height} | format=0x${format.toString(16)}")
     }
 
     fun isPreviewSurface(surface: Surface?): Boolean {
@@ -49,13 +48,7 @@ class SurfaceManager(private val logAction: (String) -> Unit) {
         val id = SystemUtils.getSurfaceId(surface)
         val exists = previewSurfaceIds.contains(id)
 
-        logAction(
-            "[SURFACE DEBUG] " +
-                    "identity=${System.identityHashCode(surface)} " +
-                    "id=$id " +
-                    "surface=$surface " +
-                    "preview=$exists"
-        )
+        logSurface("[*] CHECK: id=$id preview=$exists")
 
         if (nonPreviewSurfaceIds.contains(id)) return false
         if (!exists) {
@@ -63,32 +56,23 @@ class SurfaceManager(private val logAction: (String) -> Unit) {
                 registerPreviewSurface(surface)
                 return true
             }
-            logAction("[Check] Surface ID $id is NOT in preview list | Current IDs: $previewSurfaceIds")
+            logSurface("[!] ID $id is NOT in preview list | Current IDs: $previewSurfaceIds")
         }
         return exists
     }
 
     fun logSessionOutput(surface: Surface) {
         val id = SystemUtils.getSurfaceId(surface)
-        logAction(
-            "[SESSION OUTPUT]\n" +
-                    "identity=${System.identityHashCode(surface)}\n" +
-                    "id=$id\n" +
-                    "preview=${previewSurfaceIds.contains(id)}\n" +
-                    "surface=$surface"
-        )
+        logSurface("[*] SESSION OUTPUT: id=$id preview=${previewSurfaceIds.contains(id)} surface=$surface")
     }
 
     fun clearPreviewSurfaces(isEnginePlaying: Boolean) {
         if (isEnginePlaying) {
-            logAction("[System] Keep IDs (Engine is playing)")
+            logSurface("[*] Keep IDs (Engine is playing)")
             return
         }
-        logAction("[System] Clearing Surface IDs")
+        logSurface("[*] Clearing Surface IDs")
         previewSurfaceIds.clear()
-        // ImageReader is usually created before CameraDevice creates its
-        // capture session. Keep those identities so discovery cannot later
-        // mistake the same output for a preview surface.
         previewSwapped = false
     }
 }

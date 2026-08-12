@@ -26,13 +26,13 @@ public class Camera2Hook {
 
     public void install(XposedModuleInterface.PackageReadyParam param) {
         try {
-            module.printLog("Initializing Camera2 API hooks", null);
+            module.logHook("[*] Initializing Camera2 API");
             hookDiscovery(param);
             hookModernHijack(param);
             hookSurgicalDiverter(param);
-            module.printLog("Camera2 API hooks initialized successfully", null);
+            module.logHook("[+] Camera2 API hooks installed successfully");
         } catch (Throwable t) {
-            module.printLog("Failed to initialize Camera2 API hooks: " + t.getMessage(), null);
+            module.logHook("[!] Failed to initialize Camera2 API hooks: " + t.getMessage());
         }
     }
 
@@ -42,7 +42,7 @@ public class Camera2Hook {
             for (Method method : cameraDeviceClass.getDeclaredMethods()) {
                 if (method.getName().startsWith("createCaptureSession")) {
                     module.hook(method).intercept(chain -> {
-                        module.printLog("[Discovery] CameraDeviceImpl#" + method.getName(), null);
+                        module.logHook("[*] Activity: CameraDeviceImpl#" + method.getName());
                         module.incrementSessionGeneration();
                         module.clearPreviewSurfaces();
                         for (Object arg : chain.getArgs()) {
@@ -50,10 +50,11 @@ public class Camera2Hook {
                         }
                         return chain.proceed();
                     });
+                    module.logHook("[+] Hooked: CameraDeviceImpl#" + method.getName());
                 }
             }
         } catch (Throwable t) {
-            module.printLog("Discovery hook failed: " + t.getMessage(), null);
+            module.logHook("[!] Discovery hook failed: " + t.getMessage());
         }
     }
 
@@ -84,7 +85,7 @@ public class Camera2Hook {
                         module.registerPreviewSurface(surface);
                         String sStr = surface.toString();
                         if (sStr.contains("SurfaceTexture") && !module.getPreviewSwapped()) {
-                            module.printLog("[Hijack] ACTION: Swapping Preview Surface via OutputConfiguration", null);
+                            module.logHook("[!] Action: Swapping Preview Surface via OutputConfiguration");
                             module.setPreviewSwapped(true);
                             module.handleModernPreview(surface);
                             
@@ -95,9 +96,10 @@ public class Camera2Hook {
                     }
                     return chain.proceed();
                 });
+                module.logHook("[+] Hooked: OutputConfiguration Constructor");
             }
         } catch (Throwable t) {
-            module.printLog("Modern Hijack hook failed: " + t.getMessage(), null);
+            module.logHook("[!] Modern Hijack hook failed: " + t.getMessage());
         }
     }
 
@@ -112,7 +114,7 @@ public class Camera2Hook {
                     try { intent = builder.get(CaptureRequest.CONTROL_CAPTURE_INTENT); } catch (Throwable ignored) {}
 
                     if (intent != null && intent == CaptureRequest.CONTROL_CAPTURE_INTENT_STILL_CAPTURE) {
-                        module.printLog("Hooked: addTarget [STILL_CAPTURE]", null);
+                        module.logHook("[*] Activity: addTarget [STILL_CAPTURE]");
                         module.triggerCaptureState();
                         return chain.proceed();
                     }
@@ -124,8 +126,9 @@ public class Camera2Hook {
                 }
                 return chain.proceed();
             });
+            module.logHook("[+] Hooked: CaptureRequest.Builder#addTarget");
         } catch (Throwable t) {
-            module.printLog("Surgical Diverter hook failed: " + t.getMessage(), null);
+            module.logHook("[!] Surgical Diverter hook failed: " + t.getMessage());
         }
     }
 }

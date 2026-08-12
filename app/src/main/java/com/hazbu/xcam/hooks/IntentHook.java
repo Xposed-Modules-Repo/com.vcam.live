@@ -24,10 +24,10 @@ public class IntentHook {
 
     public void install(XposedModuleInterface.PackageReadyParam param) {
         try {
-            module.printLog("Initializing camera intent hooks (Logging only)", null);
+            module.logHook("[*] Initializing Camera Intent Hooks");
             hookStartActivityForResult(param);
         } catch (Throwable t) {
-            module.printLog("Failed to initialize camera intent hooks: " + t.getMessage(), null);
+            module.logHook("[!] Failed to initialize camera intent hooks: " + t.getMessage());
         }
     }
 
@@ -37,22 +37,24 @@ public class IntentHook {
             module.hook(start1).intercept(chain -> {
                 Intent intent = (Intent) chain.getArgs().get(0);
                 if (isCameraIntent(intent)) {
-                    module.printLog("Camera Intent detected: " + intent.getAction(), null);
+                    module.logHook("[*] Activity: Camera Intent detected: " + intent.getAction());
                 }
                 return chain.proceed();
             });
+            module.logHook("[+] Hooked: Activity#startActivityForResult(Intent, int)");
 
             Method start2 = Activity.class.getDeclaredMethod("startActivityForResult", Intent.class, int.class, Bundle.class);
             module.hook(start2).intercept(chain -> {
                 Intent intent = (Intent) chain.getArgs().get(0);
                 if (isCameraIntent(intent)) {
-                    module.printLog("Camera Intent detected (with bundle): " + intent.getAction(), null);
+                    module.logHook("[*] Activity: Camera Intent detected (w/ bundle): " + intent.getAction());
                 }
                 return chain.proceed();
             });
+            module.logHook("[+] Hooked: Activity#startActivityForResult(Intent, int, Bundle)");
 
         } catch (Throwable t) {
-            module.printLog("Failed to hook startActivityForResult: " + t.getMessage(), null);
+            module.logHook("[!] Failed to hook startActivityForResult: " + t.getMessage());
         }
     }
 

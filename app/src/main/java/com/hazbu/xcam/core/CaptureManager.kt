@@ -32,13 +32,17 @@ class CaptureManager(
 
     private val uiHandler = Handler(Looper.getMainLooper())
 
+    private fun logCapture(msg: String) {
+        logAction("[CAPTURE] $msg")
+    }
+
     fun triggerCaptureState(currentPositionProvider: () -> Int) {
         val now = System.currentTimeMillis()
         if (now - lastCapturePulseTime < 2000) return
         lastCapturePulseTime = now
 
         captureTimeMs = try { currentPositionProvider() } catch (_: Throwable) { 0 }
-        logAction("Capture pulse detected! Target Frame Time: $captureTimeMs ms")
+        logCapture("[*] Pulse detected! Target Frame Time: $captureTimeMs ms")
 
         isCapturing = true
         cachedCaptureFrame = null
@@ -49,9 +53,9 @@ class CaptureManager(
             isCapturing = false
             uiHandler.postDelayed({
                 cachedCaptureFrame = null
-                logAction("Capture Cache Cleared")
+                logCapture("[*] Cache Cleared")
             }, 5000)
-            logAction("Capture pulse ended")
+            logCapture("[*] Pulse ended")
         }, 3000)
     }
 
@@ -74,15 +78,16 @@ class CaptureManager(
             val targetW = if (width > 0) width else 1280
             val targetH = if (height > 0) height else 1280
 
-            logAction("Hunter: One-time extraction at $captureTimeMs ms ($targetW x $targetH)")
+            logCapture("[*] One-time extraction at $captureTimeMs ms ($targetW x $targetH)")
 
             return try {
                 setIgnoringHooks(true)
-                val result = XCamCapture.createJpeg(context, actualPath, targetW, targetH, rotationAngle, isMirrored, captureTimeMs) { logAction(it) }
+                val result = XCamCapture.createJpeg(context, actualPath, targetW, targetH, rotationAngle, isMirrored, captureTimeMs) { logCapture(it) }
                 cachedCaptureFrame = result
+                logCapture("[+] Extraction successful")
                 result
             } catch (e: Throwable) {
-                logAction("Hunter: Extraction failed: ${e.message}")
+                logCapture("[!] Extraction failed: " + e.message)
                 null
             } finally {
                 setIgnoringHooks(false)
@@ -135,11 +140,11 @@ class CaptureManager(
                 try {
                     setIgnoringHooks(true)
                     val frame = XCamCapture.createJpeg(
-                        context, actualPath, width, height, rotationAngle, isMirrored, frameTimeMs, logAction
-                    )
+                        context, actualPath, width, height, rotationAngle, isMirrored, frameTimeMs
+                    ) { logCapture(it) }
                     if (frame != null) cachedStreamFrame = frame
                 } catch (e: Throwable) {
-                    logAction("Stream frame extraction failed: ${e.message}")
+                    logCapture("Stream extraction failed: ${e.message}")
                 } finally {
                     setIgnoringHooks(false)
                     synchronized(this) { streamExtractionRunning = false }

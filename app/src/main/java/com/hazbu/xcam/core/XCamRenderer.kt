@@ -42,7 +42,12 @@ class XCamRenderer(
         Matrix.setIdentityM(mvpMatrix, 0)
     }
 
+    private fun logRender(msg: String) {
+        printLog("[*] xCam [RENDER] $msg")
+    }
+
     private fun setup() {
+        logRender("Starting Renderer Setup for: $currentPath")
         try {
             if (currentPath.lowercase().endsWith(".mp4")) {
                 isOES = true
@@ -56,7 +61,16 @@ class XCamRenderer(
                     setDataSource(context, currentPath.toUri())
                     setSurface(Surface(surfaceTexture))
                     isLooping = true
-                    setOnPreparedListener { mediaW = it.videoWidth; mediaH = it.videoHeight; it.start() }
+                    setOnPreparedListener { 
+                        mediaW = it.videoWidth
+                        mediaH = it.videoHeight
+                        logRender("[+] Media Prepared: ${mediaW}x${mediaH}")
+                        it.start() 
+                    }
+                    setOnErrorListener { _, what, extra ->
+                        logRender("[!] MediaPlayer Error ($what, $extra)")
+                        true
+                    }
                     prepareAsync()
                 }
             } else {
@@ -64,6 +78,7 @@ class XCamRenderer(
                 val bitmap = context.contentResolver.openInputStream(currentPath.toUri())?.use { BitmapFactory.decodeStream(it) }
                 if (bitmap != null) {
                     mediaW = bitmap.width; mediaH = bitmap.height
+                    logRender("[+] Image Loaded: ${mediaW}x${mediaH}")
                     val tex = IntArray(1).also { GLES20.glGenTextures(1, it, 0) }
                     textureId = tex[0]
                     GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
@@ -75,7 +90,8 @@ class XCamRenderer(
             }
             initShaders()
             initialized = true
-        } catch (e: Exception) { printLog("Renderer setup failed: ${e.message}") }
+            logRender("[+] Renderer Setup Complete")
+        } catch (e: Exception) { logRender("[!] Renderer Setup Failed: ${e.message}") }
     }
 
     private fun initShaders() {

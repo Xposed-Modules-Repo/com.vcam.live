@@ -26,6 +26,6 @@ class XCamInjectors(private val module: XCamModule) {
         imageReaderHook.install(param)
         webRtcHook.install(param)
         
-        module.printLog("All integrated hooks installed successfully", null)
+        module.logInit("[+] All integrated hooks installed successfully")
     }
 }

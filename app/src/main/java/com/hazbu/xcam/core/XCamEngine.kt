@@ -33,9 +33,24 @@ class XCamEngine(
     fun isPlaying() = c1MediaPlayer?.isPlaying == true
     fun getCurrentPosition() = c1MediaPlayer?.currentPosition ?: 0
 
+    private fun logPipe(msg: String) {
+        val gen = surfaceManager.sessionGeneration
+        logAction("xCam [Gen: $gen] [PIPELINE] $msg")
+    }
+
+    private fun logMedia(msg: String) {
+        val gen = surfaceManager.sessionGeneration
+        logAction("xCam [Gen: $gen] [MEDIA] $msg")
+    }
+
+    private fun logError(msg: String, tr: Throwable? = null) {
+        val gen = surfaceManager.sessionGeneration
+        logAction("xCam [Gen: $gen] [PIPELINE] [!] ERROR: $msg ${tr?.message ?: ""}")
+    }
+
     fun stopCamera1Engine() {
         uiHandler.removeCallbacksAndMessages("STOP_SIGNAL")
-        logAction("[Step 4] Engine STOP triggered")
+        logPipe("Engine STOP triggered")
         try {
             isPlayerBusy = true
             c1MediaPlayer?.let { player ->
@@ -44,7 +59,7 @@ class XCamEngine(
                 player.release()
             }
         } catch (e: Throwable) {
-            logAction("Error stopping engine: ${e.message}")
+            logError("Stopping engine failed", e)
         }
         c1MediaPlayer = null
         isPlayerBusy = false
@@ -79,7 +94,7 @@ class XCamEngine(
         val surface = Surface(st)
 
         if (!surfaceManager.isPreviewSurface(surface)) {
-            logAction("UI Hook: Ignoring non-preview SurfaceTexture (${surface.hashCode()})")
+            logPipe("Legacy Hook: Ignoring non-preview SurfaceTexture (${surface.hashCode()})")
             surface.release()
             return
         }
@@ -101,16 +116,18 @@ class XCamEngine(
                     setOnPreparedListener {
                         isPlayerBusy = false
                         it.start()
+                        logMedia("Legacy Player ACTIVE")
                     }
-                    setOnErrorListener { _, _, _ ->
+                    setOnErrorListener { _, what, extra ->
                         isPlayerBusy = false
+                        logMedia("Legacy Player Error ($what, $extra)")
                         stopCamera1Engine(); true
                     }
                 }
             }
         } catch (e: Exception) {
             isPlayerBusy = false
-            logAction("Legacy Error: ${e.message}")
+            logPipe("Legacy Error: ${e.message}")
         }
     }
 
@@ -132,7 +149,7 @@ class XCamEngine(
             if (!surface.isValid) return@post
 
             if (!surfaceManager.isPreviewSurface(surface)) {
-                logAction("UI Hook: Ignoring non-preview SurfaceView (${surface.hashCode()})")
+                logPipe("Modern Hook: Ignoring non-preview SurfaceView (${surface.hashCode()})")
                 return@post
             }
 
@@ -149,25 +166,25 @@ class XCamEngine(
             val currentEngineId = SystemUtils.getSurfaceId(c1Surface)
             val currentGeneration = surfaceManager.sessionGeneration
 
-            logAction("[Inject] Request for ID: $surfaceId | Gen: $currentGeneration | Last: $lastInjectedGeneration")
+            logPipe("Injection Request | ID: $surfaceId | Gen: $currentGeneration | Last: $lastInjectedGeneration")
 
             if (!surface.isValid) {
-                logAction("[Inject] ABORTED: Surface is INVALID")
+                logPipe("Injection ABORTED: Surface is INVALID")
                 return
             }
 
             if (surfaceId == currentEngineId && 
                 c1MediaPlayer?.isPlaying == true && 
                 currentGeneration == lastInjectedGeneration) {
-                logAction("[Inject] IGNORED: Already playing on this surface and session")
+                logPipe("Injection IGNORED: Already playing on this surface/session")
                 return
             }
 
             try {
                 if (currentGeneration != lastInjectedGeneration) {
-                    logAction("[Inject] NEW SESSION detected (Gen $currentGeneration). Forcing restart.")
+                    logPipe("New Session Detected (Gen $currentGeneration). Forcing restart.")
                 } else {
-                    logAction("[Inject] FORCING RESTART for new surface...")
+                    logPipe("Forcing restart for new surface...")
                 }
                 
                 stopCamera1Engine()
@@ -184,7 +201,7 @@ class XCamEngine(
                     try {
                         setSurface(surface)
                     } catch (e: Exception) {
-                        logAction("[Inject] FATAL: setSurface failed: ${e.message}")
+                        logPipe("FATAL: setSurface failed: ${e.message}")
                         isPlayerBusy = false
                         return
                     }
@@ -194,27 +211,27 @@ class XCamEngine(
                         isPlayerBusy = false
                         try {
                             it.start()
-                            logAction("[Step 3] Engine ACTIVE: Playing on ID: $surfaceId")
+                            logMedia("Engine ACTIVE: Playing on ID: $surfaceId")
                         } catch (e: Throwable) {
-                            logAction("Engine: Start failed: ${e.message}")
+                            logMedia("Engine Start Failed: ${e.message}")
                         }
                     }
                     setOnErrorListener { _, what, extra ->
                         isPlayerBusy = false
-                        logAction("Engine: Error ($what, $extra)")
+                        logError("Engine Error ($what, $extra)")
                         stopCamera1Engine(); true
                     }
                     try {
-                        logAction("[Step 2] Engine: Preparing for ID: $surfaceId")
+                        logPipe("Engine Preparing for ID: $surfaceId")
                         prepareAsync()
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
                         isPlayerBusy = false
-                        logAction("Engine: prepareAsync fatal error")
+                        logError("Engine prepareAsync fatal error", e)
                     }
                 }
             } catch (e: Throwable) {
                 isPlayerBusy = false
-                logAction("Modern Injection Error: ${e.message}")
+                logError("Modern Injection Error", e)
             }
         }
     }

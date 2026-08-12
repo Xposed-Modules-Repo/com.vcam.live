@@ -42,8 +42,16 @@ class XCamModule : XposedModule() {
         set(value) { surfaceManager.previewSwapped = value }
 
     fun printLog(msg: String, tr: Throwable? = null) {
-        Logger.printLog(this, msg, tr)
+        if (tr != null || msg.contains("Error") || msg.contains("failed") || msg.contains("FATAL")) {
+            Logger.e(this, msg, tr)
+        } else {
+            Logger.i(this, msg)
+        }
     }
+
+    fun logInit(msg: String) = Logger.i(this, "[INIT] $msg")
+    fun logHook(msg: String) = Logger.d(this, "[HOOK] $msg")
+    fun logSettings(msg: String) = Logger.i(this, "[SETTINGS] $msg")
 
     fun showToast(message: String) {
         UIUtils.showToast(mContext, message) { printLog(it) }
@@ -77,7 +85,7 @@ class XCamModule : XposedModule() {
         hooksInstalled = true
 
         clearPreviewSurfaces()
-        printLog(">>> ACTIVE IN: $processName (API ${Build.VERSION.SDK_INT}) <<<")
+        logInit(">>> ACTIVE IN: $processName (API ${Build.VERSION.SDK_INT}) <<<")
         hookContextInit()
         injectors.install(param)
     }
@@ -98,14 +106,17 @@ class XCamModule : XposedModule() {
                 val result = chain.proceed()
                 if (!isInitialized) {
                     mContext = chain.thisObject as? Context
-                    printLog("Context Initialized: ${mContext?.packageName}")
-                    mContext?.let { settingsManager.refreshSettings(it) }
+                    logInit("Context Initialized: ${mContext?.packageName}")
+                    mContext?.let { 
+                        settingsManager.refreshSettings(it)
+                        logSettings("Initial settings loaded for ${it.packageName}")
+                    }
                     isInitialized = true
                 }
                 result
             }
         } catch (e: Exception) {
-            printLog("Context hook failure", e)
+            logInit("Context hook failure: ${e.message}")
         }
     }
 

@@ -33,13 +33,13 @@ public class CameraHook {
 
     public void install(XposedModuleInterface.PackageReadyParam param) {
         try {
-            module.printLog("Initializing Camera API hooks", null);
+            module.logHook("[*] Initializing Camera API (Legacy)");
             hookCameraParameters(param);
             hookViewfinder(param);
             hookTakePicture(param);
             hookLegacyMethod1(param);
         } catch (Throwable t) {
-            module.printLog("Failed to initialize Camera API hooks: " + t.getMessage(), null);
+            module.logHook("[!] FAILED to initialize Camera API hooks: " + t.getMessage());
         }
     }
 
@@ -53,7 +53,7 @@ public class CameraHook {
                 if (module.handlePreview(width, height)) return null;
                 return chain.proceed();
             });
-            module.printLog("Legacy: Method 1 (Renderer) Hook OK", null);
+            module.logHook("[+] Hooked: SurfaceTextureRenderer#drawFrame");
         } catch (Throwable ignored) {}
 
         try {
@@ -74,6 +74,7 @@ public class CameraHook {
                         }
                         return chain.proceed();
                     });
+                    module.logHook("[+] Hooked: LegacyCameraDevice#produceFrame");
                 }
             }
         } catch (Throwable ignored) {}
@@ -87,6 +88,7 @@ public class CameraHook {
                 if (holder != null && holder.getSurface() != null) viewfinderSurface = holder.getSurface();
                 return chain.proceed();
             });
+            module.logHook("[+] Hooked: Camera#setPreviewDisplay");
 
             Method setPreviewTexture = Camera.class.getDeclaredMethod("setPreviewTexture", SurfaceTexture.class);
             module.hook(setPreviewTexture).intercept(chain -> {
@@ -94,6 +96,7 @@ public class CameraHook {
                 if (texture != null) viewfinderSurface = new Surface(texture);
                 return chain.proceed();
             });
+            module.logHook("[+] Hooked: Camera#setPreviewTexture");
 
             Method startPreview = Camera.class.getDeclaredMethod("startPreview");
             module.hook(startPreview).intercept(chain -> {
@@ -103,6 +106,7 @@ public class CameraHook {
                 }
                 return result;
             });
+            module.logHook("[+] Hooked: Camera#startPreview");
 
             Method stopPreview = Camera.class.getDeclaredMethod("stopPreview");
             module.hook(stopPreview).intercept(chain -> {
@@ -110,8 +114,9 @@ public class CameraHook {
                 module.stopCamera1Engine();
                 return result;
             });
+            module.logHook("[+] Hooked: Camera#stopPreview");
         } catch (Throwable t) {
-            module.printLog("Failed to hook viewfinder: " + t.getMessage(), null);
+            module.logHook("[!] Failed to hook viewfinder: " + t.getMessage());
         }
     }
 
@@ -120,11 +125,12 @@ public class CameraHook {
             Class<?> paramsClass = Camera.Parameters.class;
             Method setPreviewSize = paramsClass.getDeclaredMethod("setPreviewSize", int.class, int.class);
             module.hook(setPreviewSize).intercept(chain -> {
-                module.printLog("Legacy: setPreviewSize " + chain.getArgs().get(0) + "x" + chain.getArgs().get(1), null);
+                module.logHook("[*] Legacy Activity: setPreviewSize " + chain.getArgs().get(0) + "x" + chain.getArgs().get(1));
                 return chain.proceed();
             });
+            module.logHook("[+] Hooked: Camera.Parameters#setPreviewSize");
         } catch (Throwable t) {
-            module.printLog("Failed to hook Camera.Parameters: " + t.getMessage(), null);
+            module.logHook("[!] Failed to hook Camera.Parameters: " + t.getMessage());
         }
     }
 
@@ -160,10 +166,11 @@ public class CameraHook {
                         if (Looper.myLooper() == Looper.getMainLooper()) deliver.run(); else mainHandler.post(deliver);
                         return null;
                     });
+                    module.logHook("[+] Hooked: Camera#takePicture (Legacy)");
                 }
             }
         } catch (Throwable t) {
-            module.printLog("Failed to hook takePicture: " + t.getMessage(), null);
+            module.logHook("[!] Failed to hook takePicture: " + t.getMessage());
         }
     }
 }

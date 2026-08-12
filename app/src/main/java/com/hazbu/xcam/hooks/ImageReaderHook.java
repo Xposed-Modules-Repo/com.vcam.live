@@ -29,10 +29,10 @@ public class ImageReaderHook {
 
     public void install(XposedModuleInterface.PackageReadyParam param) {
         try {
-            module.printLog("Initializing ImageReader hooks", null);
+            module.logHook("[*] Initializing ImageReader Hooks");
             hookImageReader(param);
         } catch (Throwable t) {
-            module.printLog("Failed to initialize ImageReader hooks: " + t.getMessage(), null);
+            module.logHook("[!] Failed to initialize ImageReader hooks: " + t.getMessage());
         }
     }
 
@@ -63,7 +63,7 @@ public class ImageReaderHook {
                             ImageReader reader = (ImageReader) result;
                             module.registerImageReaderSurface(reader.getSurface(), format, w, h);
                         }
-                        module.printLog("[ImageReader] newInstance: " + w + "x" + h + " (" + fmtName + ")", null);
+                        module.logHook("[+] Hooked: ImageReader.newInstance (" + w + "x" + h + " " + fmtName + ")");
                         return result;
                     });
                 }
@@ -80,6 +80,7 @@ public class ImageReaderHook {
                     }
                     return result;
                 });
+                module.logHook("[+] Hooked: ImageReader#acquireLatestImage");
             } catch (Throwable ignored) {}
 
             // Hook acquireNextImage
@@ -93,10 +94,11 @@ public class ImageReaderHook {
                     }
                     return result;
                 });
+                module.logHook("[+] Hooked: ImageReader#acquireNextImage");
             } catch (Throwable ignored) {}
             
         } catch (Throwable t) {
-            module.printLog("ImageReader hook failed: " + t.getMessage(), null);
+            module.logHook("[!] ImageReader hook failed: " + t.getMessage());
         }
     }
 
@@ -110,7 +112,7 @@ public class ImageReaderHook {
             detectedFlows.add(key);
             String fmt = getFormatName(format);
             module.showToast(w + "x" + h + " (" + fmt + ")");
-            module.printLog("[ImageReader] First image acquired: " + key, null);
+            module.logHook("[*] Activity: ImageReader first image acquired: " + key);
         }
 
         if (module.getMediaPath() != null && format == ImageFormat.YUV_420_888) {
@@ -125,16 +127,16 @@ public class ImageReaderHook {
                         if (buffer != null && !buffer.isReadOnly()) {
                             buffer.clear();
                             if (buffer.remaining() < replacement.length) {
-                                module.printLog("[ImageReader] JPEG replacement skipped: buffer too small", null);
+                                module.logHook("[!] Activity: ImageReader JPEG replacement skipped: buffer too small");
                                 return;
                             }
                             buffer.put(replacement);
-                            module.printLog("[ImageReader] JPEG replaced successfully (" + replacement.length + " bytes)", null);
+                            module.logHook("[+] Activity: ImageReader JPEG replaced successfully (" + replacement.length + " bytes)");
                         }
                     }
                 }
             } catch (Throwable t) {
-                module.printLog("Failed to inject JPEG: " + t.getMessage(), null);
+                module.logHook("[!] Failed to inject JPEG: " + t.getMessage());
             }
         }
     }
@@ -153,10 +155,10 @@ public class ImageReaderHook {
             cachedYuvFrame.writeTo(planes);
             String key = width + "x" + height;
             if (injectedFlows.add(key)) {
-                module.printLog("[ImageReader] YUV replacement active: " + key, null);
+                module.logHook("[+] Activity: ImageReader YUV replacement active: " + key);
             }
         } catch (Throwable t) {
-            module.printLog("[ImageReader] YUV replacement failed: " + t.getMessage(), null);
+            module.logHook("[!] Activity: ImageReader YUV replacement failed: " + t.getMessage());
         }
     }
 
