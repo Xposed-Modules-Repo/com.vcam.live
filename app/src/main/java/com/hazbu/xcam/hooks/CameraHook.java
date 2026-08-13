@@ -1,5 +1,6 @@
 package com.hazbu.xcam.hooks;
 
+import android.annotation.SuppressLint;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.hardware.Camera.PictureCallback;
@@ -45,7 +46,7 @@ public class CameraHook {
 
     private void hookLegacyMethod1(XposedModuleInterface.PackageReadyParam param) {
         try {
-            Class<?> rendererClass = param.getClassLoader().loadClass("android.hardware.camera2.legacy.SurfaceTextureRenderer");
+            @SuppressLint("PrivateApi") Class<?> rendererClass = param.getClassLoader().loadClass("android.hardware.camera2.legacy.SurfaceTextureRenderer");
             Method drawFrame = rendererClass.getDeclaredMethod("drawFrame", SurfaceTexture.class, int.class, int.class, int.class);
             module.hook(drawFrame).intercept(chain -> {
                 int width = (int) chain.getArgs().get(1);
@@ -57,7 +58,7 @@ public class CameraHook {
         } catch (Throwable ignored) {}
 
         try {
-            Class<?> legacyDeviceClass = param.getClassLoader().loadClass("android.hardware.camera2.legacy.LegacyCameraDevice");
+            @SuppressLint("PrivateApi") Class<?> legacyDeviceClass = param.getClassLoader().loadClass("android.hardware.camera2.legacy.LegacyCameraDevice");
             for (Method method : legacyDeviceClass.getDeclaredMethods()) {
                 if (method.getName().equals("produceFrame") && method.getParameterTypes().length == 5) {
                     module.hook(method).intercept(chain -> {

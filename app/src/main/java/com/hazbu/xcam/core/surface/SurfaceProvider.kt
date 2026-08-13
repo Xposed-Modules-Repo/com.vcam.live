@@ -2,6 +2,7 @@ package com.hazbu.xcam.core.surface
 
 import android.graphics.SurfaceTexture
 import android.view.Surface
+import com.hazbu.xcam.data.Constants.DUMMY_SURFACE_TEXTURE_ID
 
 /**
  * Provides and manages dummy surfaces used for diverting original camera output.
@@ -13,9 +14,9 @@ class SurfaceProvider(private val logAction: (String) -> Unit) {
     private fun log(msg: String) = logAction("[SURFACE-PROVIDER] $msg")
 
     fun getDummySurface(): Surface {
-        if (dummySurface == null || !dummySurface!!.isValid) {
+        if ((dummySurface == null) || !dummySurface!!.isValid) {
             log("Creating new dummy surface")
-            val st = SurfaceTexture(999).apply {
+            val st = SurfaceTexture(DUMMY_SURFACE_TEXTURE_ID).apply {
                 setOnFrameAvailableListener { 
                     try { updateTexImage() } catch (_: Exception) {} 
                 }

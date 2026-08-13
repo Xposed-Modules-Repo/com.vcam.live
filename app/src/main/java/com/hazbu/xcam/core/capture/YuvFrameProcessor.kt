@@ -1,8 +1,8 @@
 package com.hazbu.xcam.core.capture
 
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.Image
+import androidx.core.graphics.scale
 
 /**
  * Handles conversion of JPEG/Bitmap data into YUV_420_888 format
@@ -17,14 +17,14 @@ class YuvFrameProcessor {
         val height: Int,
         val y: ByteArray,
         val u: ByteArray,
-        val v: ByteArray
+        val v: ByteArray,
     )
 
     fun injectToImage(image: Image, jpeg: ByteArray) {
         val width = image.width
         val height = image.height
         
-        val yuv = if (cachedSource === jpeg && cachedYuv?.width == width && cachedYuv?.height == height) {
+        val yuv = if ((cachedSource === jpeg) && (cachedYuv?.width == width) && (cachedYuv?.height == height)) {
             cachedYuv!!
         } else {
             process(jpeg, width, height).also {
@@ -46,7 +46,7 @@ class YuvFrameProcessor {
             ?: throw IllegalStateException("Failed to decode frame")
             
         val bitmap = if (decoded.width == width && decoded.height == height) decoded 
-            else Bitmap.createScaledBitmap(decoded, width, height, true)
+            else decoded.scale(width, height)
             
         val pixels = IntArray(width * height)
         bitmap.getPixels(pixels, 0, width, 0, 0, width, height)

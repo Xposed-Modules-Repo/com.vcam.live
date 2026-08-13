@@ -1,9 +1,11 @@
 package com.hazbu.xcam.hooks;
 
-import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
 import android.media.Image;
 import android.media.ImageReader;
+
+import androidx.annotation.NonNull;
+
 import com.hazbu.xcam.xposed.XCamModule;
 import com.hazbu.xcam.utils.SystemUtils;
 import java.lang.reflect.Method;
@@ -40,6 +42,7 @@ public class ImageReaderHook {
             this.surfaceId = surfaceId;
         }
 
+        @NonNull
         @Override
         public String toString() {
             return width + "x" + height + " " + formatName + " (ID: " + surfaceId + ")";

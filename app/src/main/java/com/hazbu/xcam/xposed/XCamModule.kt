@@ -34,8 +34,7 @@ class XCamModule : XposedModule() {
     private val captureManager = CaptureManager(
         contextProvider = { mContext },
         refreshSettingsAction = { settings.refreshSettings(it) },
-        logAction = { printLog(it) }
-    )
+    ) { printLog(it) }
     
     private val engine = XCamEngine(
         contextProvider = { mContext },
@@ -43,8 +42,7 @@ class XCamModule : XposedModule() {
         surfaceManager = surfaceManager,
         mediaEngine = mediaEngine,
         surfaceProvider = surfaceProvider,
-        logAction = { printLog(it) }
-    )
+    ) { printLog(it) }
 
     fun isIgnoringHooks(): Boolean = ignoreHooks.get() ?: false
     fun setIgnoringHooks(ignore: Boolean) { ignoreHooks.set(ignore) }
@@ -55,7 +53,7 @@ class XCamModule : XposedModule() {
         set(value) { surfaceManager.previewSwapped = value }
 
     fun printLog(msg: String, tr: Throwable? = null) {
-        if (tr != null || msg.contains("Error") || msg.contains("failed") || msg.contains("FATAL")) {
+        if (tr != null || (msg.contains("Error") || msg.contains("failed") || msg.contains("FATAL"))) {
             Logger.e(this, msg, tr)
         } else {
             Logger.i(this, msg)
@@ -64,7 +62,6 @@ class XCamModule : XposedModule() {
 
     fun logInit(msg: String) = Logger.i(this, "[INIT] $msg")
     fun logHook(msg: String) = Logger.d(this, "[HOOK] $msg")
-    fun logSettings(msg: String) = Logger.i(this, "[SETTINGS] $msg")
 
     fun showToast(message: String) = UIUtils.showToast(mContext, message) { printLog(it) }
 
@@ -80,7 +77,6 @@ class XCamModule : XposedModule() {
     fun isPreviewSurface(s: Surface?) = surfaceManager.isPreviewSurface(s)
     fun logSessionOutput(s: Surface) = surfaceManager.logSessionOutput(s)
     fun incrementSessionGeneration() = surfaceManager.incrementSessionGeneration()
-    fun getSessionGeneration() = surfaceManager.sessionGeneration
     fun clearPreviewSurfaces() = surfaceManager.clearPreviewSurfaces(engine.isPlaying())
 
     // Frame Processing
@@ -100,12 +96,14 @@ class XCamModule : XposedModule() {
     // Capture Delegation
     fun handleCapture(w: Int, h: Int) = captureManager.handleCapture(
         settings.mediaPath, w, h, settings.rotationAngle, settings.isMirrored,
-        { isIgnoringHooks() }, { setIgnoringHooks(it) }
+        { isIgnoringHooks() },
+        { setIgnoringHooks(it) },
     )
 
     fun handleStreamFrame(w: Int, h: Int) = captureManager.handleStreamFrame(
         settings.mediaPath, w, h, settings.rotationAngle, settings.isMirrored,
-        { isIgnoringHooks() }, { setIgnoringHooks(it) }
+        { isIgnoringHooks() },
+        { setIgnoringHooks(it) },
     )
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {

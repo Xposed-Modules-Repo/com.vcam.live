@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 
+import com.hazbu.xcam.data.Constants;
 import com.hazbu.xcam.xposed.XCamModule;
 
 import java.io.FileOutputStream;
@@ -110,7 +111,7 @@ public class CaptureHook {
             module.hook(compress).intercept(chain -> {
                 if (module.isIgnoringHooks()) return chain.proceed();
                 if (module.isCapturingState() && module.getMediaPath() != null) {
-                    byte[] injected = module.handleCapture(1280, 1280);
+                    byte[] injected = module.handleCapture(Constants.DEFAULT_CAPTURE_WIDTH, Constants.DEFAULT_CAPTURE_HEIGHT);
                     if (injected != null) {
                         OutputStream os = (OutputStream) chain.getArgs().get(2);
                         if (os != null) {
@@ -145,7 +146,7 @@ public class CaptureHook {
                     
                     // Detect JPEG header (FF D8 FF)
                     if (data != null && len > 100 && (data[0] & 0xFF) == 0xFF && (data[1] & 0xFF) == 0xD8) {
-                        byte[] injected = module.handleCapture(1280, 1280);
+                        byte[] injected = module.handleCapture(Constants.DEFAULT_CAPTURE_WIDTH, Constants.DEFAULT_CAPTURE_HEIGHT);
                         if (injected != null) {
                             module.logHook("[*] Activity: Captured -> Injected into FileOutputStream#write (" + len + " bytes)");
                             Object[] args = chain.getArgs().toArray();
@@ -175,11 +176,10 @@ public class CaptureHook {
                 if (uri != null && mode != null && mode.contains("w") && module.isCapturingState()) {
                     ParcelFileDescriptor pfd = (ParcelFileDescriptor) chain.proceed();
                     if (pfd != null) {
-                        byte[] injected = module.handleCapture(1280, 1280);
+                        byte[] injected = module.handleCapture(Constants.DEFAULT_CAPTURE_WIDTH, Constants.DEFAULT_CAPTURE_HEIGHT);
                         if (injected != null) {
-                            try {
+                            try (FileOutputStream fos = new FileOutputStream(pfd.getFileDescriptor())) {
                                 module.setIgnoringHooks(true);
-                                FileOutputStream fos = new FileOutputStream(pfd.getFileDescriptor());
                                 fos.write(injected);
                                 fos.flush();
                                 module.logHook("[*] Activity: Captured -> Injected into MediaStore FD: " + uri);

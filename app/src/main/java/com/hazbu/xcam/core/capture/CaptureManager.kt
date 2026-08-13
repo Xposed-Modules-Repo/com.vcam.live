@@ -4,6 +4,9 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import com.hazbu.xcam.data.Constants.DEFAULT_CAPTURE_HEIGHT
+import com.hazbu.xcam.data.Constants.DEFAULT_CAPTURE_WIDTH
+import com.hazbu.xcam.data.Constants.STREAM_FRAME_INTERVAL_MS
 import java.util.concurrent.Executors
 
 /**
@@ -12,11 +15,11 @@ import java.util.concurrent.Executors
 class CaptureManager(
     private val contextProvider: () -> Context?,
     private val refreshSettingsAction: (Context) -> Unit,
-    private val logAction: (String) -> Unit
+    private val logAction: (String) -> Unit,
 ) {
     private val uiHandler = Handler(Looper.getMainLooper())
     private val streamExecutor = Executors.newSingleThreadExecutor()
-    private val streamFrameIntervalMs = 500L
+    private val streamFrameIntervalMs = STREAM_FRAME_INTERVAL_MS
 
     @Volatile var isCapturing = false
         private set
@@ -36,7 +39,7 @@ class CaptureManager(
 
     fun triggerCaptureState(currentPositionProvider: () -> Int) {
         val now = System.currentTimeMillis()
-        if (now - lastCapturePulseTime < 2000) return
+        if ((now - lastCapturePulseTime) < 2000) return
         lastCapturePulseTime = now
 
         captureTimeMs = try { currentPositionProvider() } catch (_: Throwable) { 0 }
@@ -67,8 +70,8 @@ class CaptureManager(
             setIgnoringHooks(true)
             XCamCapture.createJpeg(
                 context, path, 
-                width.coerceAtLeast(1280), 
-                height.coerceAtLeast(1280), 
+                width.coerceAtLeast(DEFAULT_CAPTURE_WIDTH), 
+                height.coerceAtLeast(DEFAULT_CAPTURE_HEIGHT), 
                 rotation, mirrored, timeMs, logAction
             )
         } catch (e: Throwable) {

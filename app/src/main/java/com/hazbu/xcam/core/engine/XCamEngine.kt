@@ -16,7 +16,7 @@ class XCamEngine(
     private val surfaceManager: SurfaceManager,
     private val mediaEngine: MediaEngine,
     private val surfaceProvider: SurfaceProvider,
-    private val logAction: (String) -> Unit
+    private val logAction: (String) -> Unit,
 ) {
     private var xRenderer: XCamRenderer? = null
     private val uiHandler = Handler(Looper.getMainLooper())
@@ -35,6 +35,7 @@ class XCamEngine(
     fun stop() {
         uiHandler.removeCallbacksAndMessages(null)
         mediaEngine.stop()
+        surfaceProvider.release()
         lastST = null
         lastModernSurface = null
         lastInjectedSurfaceId = -1L
@@ -62,7 +63,7 @@ class XCamEngine(
             return
         }
 
-        if (st == lastST && mediaEngine.isPlaying) return
+        if ((st == lastST) && mediaEngine.isPlaying) return
         lastST = st
 
         val path = settingsProvider().mediaPath ?: return

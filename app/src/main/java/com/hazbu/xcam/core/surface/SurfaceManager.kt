@@ -1,6 +1,7 @@
 package com.hazbu.xcam.core.surface
 
 import android.view.Surface
+import com.hazbu.xcam.data.Constants.MIN_SESSION_DEBOUNCE_MS
 import com.hazbu.xcam.utils.SystemUtils
 
 /**
@@ -23,7 +24,7 @@ class SurfaceManager(private val logAction: (String) -> Unit) {
 
     fun incrementSessionGeneration(): Boolean {
         val now = System.currentTimeMillis()
-        if (now - lastIncrementTime < 500) return false
+        if ((now - lastIncrementTime) < MIN_SESSION_DEBOUNCE_MS) return false
         
         sessionGeneration++
         lastIncrementTime = now
@@ -43,7 +44,7 @@ class SurfaceManager(private val logAction: (String) -> Unit) {
         if (surface.isValid) {
             nonPreviewIds.add(id)
             previewIds.remove(id)
-            log("[+] ImageReader Registered | ID: $id | ${width}x${height} | 0x${format.toString(16)}")
+            log("[+] ImageReader Registered | ID: $id | $width x $height | 0x${format.toString(16)}")
         }
     }
 
