@@ -46,21 +46,38 @@ class SettingsProvider : ContentProvider() {
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
         val context = context ?: return null
-        val fileName = uri.lastPathSegment ?: "virtual.mp4"
+        val fileName = uri.lastPathSegment ?: return null
         val file = File(context.filesDir, fileName)
         
-        if (!file.exists()) {
-            return null
+        if (file.exists()) {
+            return try {
+                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            } catch (_: Exception) {
+                null
+            }
         }
+
+        val fallbackFile = context.filesDir.listFiles { _, name -> 
+            name.startsWith("virtual.") 
+        }?.firstOrNull()
         
         return try {
-            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            fallbackFile?.let { ParcelFileDescriptor.open(it, ParcelFileDescriptor.MODE_READ_ONLY) }
         } catch (_: Exception) {
             null
         }
     }
 
-    override fun getType(uri: Uri): String = "video/mp4"
+    override fun getType(uri: Uri): String {
+        val extension = uri.path?.substringAfterLast('.', "")?.lowercase() ?: ""
+        val mimeType = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+        
+        return when {
+            mimeType?.startsWith("image/") == true -> mimeType
+            mimeType?.startsWith("video/") == true -> mimeType
+            else -> "video/mp4"
+        }
+    }
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
     override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0

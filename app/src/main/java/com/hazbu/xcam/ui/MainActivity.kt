@@ -35,6 +35,11 @@ import io.github.libxposed.service.XposedServiceHelper
 
 class MainActivity : AppCompatActivity(), XposedServiceHelper.OnServiceListener {
 
+    companion object {
+        private const val VIRTUAL_PREFIX = "virtual."
+        private const val DEFAULT_VIDEO_NAME = "virtual.mp4"
+    }
+
     private lateinit var ivPreview: ImageView
     private lateinit var tvNoPreview: TextView
     private lateinit var btnDeleteMedia: MaterialButton
@@ -168,18 +173,52 @@ class MainActivity : AppCompatActivity(), XposedServiceHelper.OnServiceListener 
 
     private fun copyMediaToInternal(uri: Uri) {
         try {
-            val mimeType = contentResolver.getType(uri)
-            val extension = if (mimeType?.startsWith("image") == true) "jpg" else "mp4"
-            File(filesDir, "virtual.mp4").delete()
-            File(filesDir, "virtual.jpg").delete()
-            val internalFile = File(filesDir, "virtual.$extension")
-            contentResolver.openInputStream(uri)?.use { input ->
-                FileOutputStream(internalFile).use { output ->
-                    input.copyTo(output)
-                }
+            val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
+            val isImage = mimeType.startsWith("image/")
+            val isVideo = mimeType.startsWith("video/")
+
+            if (!isImage && !isVideo) {
+                Toast.makeText(this, "Invalid file type. Only images and videos are supported.", Toast.LENGTH_LONG).show()
+                return
             }
-            saveMediaPath(internalFile.absolutePath)
-            Toast.makeText(this, R.string.toast_media_imported, Toast.LENGTH_SHORT).show()
+            
+            filesDir.listFiles { _, name -> name.startsWith(VIRTUAL_PREFIX) }?.forEach { it.delete() }
+
+            val extension = android.webkit.MimeTypeMap.getSingleton()
+                .getExtensionFromMimeType(mimeType) ?: "bin"
+
+            if (isImage) {
+                val internalImage = File(filesDir, VIRTUAL_PREFIX + extension)
+                contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(internalImage).use { output -> input.copyTo(output) }
+                }
+                
+                val outputVideo = File(filesDir, DEFAULT_VIDEO_NAME)
+                Toast.makeText(this, "Converting image to video...", Toast.LENGTH_SHORT).show()
+                
+                com.hazbu.xcam.utils.MediaConverter.convertImageToMp4(
+                    this, Uri.fromFile(internalImage), outputVideo
+                ) { success ->
+                    runOnUiThread {
+                        internalImage.delete()
+                        if (success) {
+                            saveMediaPath(outputVideo.absolutePath)
+                            Toast.makeText(this, R.string.toast_media_imported, Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this, "Conversion failed", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            } else {
+                val internalFile = File(filesDir, VIRTUAL_PREFIX + extension)
+                contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(internalFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                saveMediaPath(internalFile.absolutePath)
+                Toast.makeText(this, R.string.toast_media_imported, Toast.LENGTH_SHORT).show()
+            }
         } catch (e: Exception) {
             val errorMsg = getString(R.string.toast_media_import_failed, e.message)
             Toast.makeText(this, errorMsg, Toast.LENGTH_LONG).show()
@@ -252,8 +291,7 @@ class MainActivity : AppCompatActivity(), XposedServiceHelper.OnServiceListener 
     }
 
     private fun deleteMedia() {
-        File(filesDir, "virtual.mp4").delete()
-        File(filesDir, "virtual.jpg").delete()
+        filesDir.listFiles { _, name -> name.startsWith(VIRTUAL_PREFIX) }?.forEach { it.delete() }
         saveMediaPath("")
         Toast.makeText(this, R.string.toast_media_removed, Toast.LENGTH_SHORT).show()
     }
