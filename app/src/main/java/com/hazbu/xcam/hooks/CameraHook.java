@@ -100,7 +100,7 @@ public class CameraHook {
             Method stopPreview = Camera.class.getDeclaredMethod("stopPreview");
             module.hook(stopPreview).intercept(chain -> {
                 Object result = chain.proceed();
-                module.stopCamera1Engine();
+                module.stopEngine();
                 return result;
             });
             module.logHook("[+] Hooked: Camera#stopPreview");

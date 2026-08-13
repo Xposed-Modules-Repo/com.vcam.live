@@ -88,7 +88,7 @@ class XCamModule : XposedModule() {
     }
 
     // Engine Delegation
-    fun stopCamera1Engine() = engine.stop()
+    fun stopEngine() = engine.stop()
     fun handleCamera1Preview(st: SurfaceTexture) = engine.handleCamera1Preview(st)
     fun handleModernPreview(s: Surface) = engine.handleModernPreview(s)
     fun handleSurfaceViewPreview(h: SurfaceHolder) = engine.handleSurfaceViewPreview(h)

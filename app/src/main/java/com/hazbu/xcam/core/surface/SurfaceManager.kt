@@ -66,8 +66,8 @@ class SurfaceManager(private val logAction: (String) -> Unit) {
         lastClearedGen = sessionGeneration
         previewSwapped = false
 
+        log("[*] Clearing Surface IDs (EnginePlaying=$isEnginePlaying)")
         if (!isEnginePlaying) {
-            log("[*] Clearing Surface IDs")
             previewIds.clear()
         }
     }

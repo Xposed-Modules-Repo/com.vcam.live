@@ -30,6 +30,7 @@ public class Camera2Hook {
             hookDiscovery(param);
             hookModernHijack(param);
             hookSurgicalDiverter(param);
+            hookCleanup(param);
             module.logHook("[+] Camera2 API hooks installed successfully");
         } catch (Throwable t) {
             module.logHook("[!] Failed to initialize Camera2 API hooks: " + t.getMessage());
@@ -132,6 +133,29 @@ public class Camera2Hook {
             module.logHook("[+] Hooked: CaptureRequest.Builder#addTarget");
         } catch (Throwable t) {
             module.logHook("[!] Surgical Diverter hook failed: " + t.getMessage());
+        }
+    }
+
+    private void hookCleanup(XposedModuleInterface.PackageReadyParam param) {
+        try {
+            Class<?> cameraDeviceClass = param.getClassLoader().loadClass("android.hardware.camera2.impl.CameraDeviceImpl");
+            Method deviceClose = cameraDeviceClass.getDeclaredMethod("close");
+            module.hook(deviceClose).intercept(chain -> {
+                module.logHook("[*] Activity: CameraDeviceImpl#close");
+                module.stopEngine();
+                return chain.proceed();
+            });
+
+            Class<?> sessionClass = param.getClassLoader().loadClass("android.hardware.camera2.impl.CameraCaptureSessionImpl");
+            Method sessionClose = sessionClass.getDeclaredMethod("close");
+            module.hook(sessionClose).intercept(chain -> {
+                module.logHook("[*] Activity: CameraCaptureSessionImpl#close");
+                module.stopEngine();
+                return chain.proceed();
+            });
+            module.logHook("[+] Hooked: Camera2 Cleanup methods");
+        } catch (Throwable t) {
+            module.logHook("[!] Cleanup hook failed: " + t.getMessage());
         }
     }
 }

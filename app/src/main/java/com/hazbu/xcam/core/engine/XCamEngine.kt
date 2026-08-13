@@ -49,8 +49,9 @@ class XCamEngine(
             return
         }
 
-        if ((st == lastST) && mediaEngine.isPlaying) return
+        if ((st == lastST) && mediaEngine.isPlaying && lastInjectedGen == surfaceManager.sessionGeneration) return
         lastST = st
+        lastInjectedGen = surfaceManager.sessionGeneration
 
         val path = settingsProvider().mediaPath ?: return
         val context = contextProvider() ?: return
@@ -61,7 +62,8 @@ class XCamEngine(
     }
 
     fun handleModernPreview(surface: Surface) {
-        if (surface == lastModernSurface && mediaEngine.isPlaying) return
+        val currentGen = surfaceManager.sessionGeneration
+        if (surface == lastModernSurface && mediaEngine.isPlaying && lastInjectedGen == currentGen) return
         lastModernSurface = surface
         uiHandler.post { processInjection(surface) }
     }

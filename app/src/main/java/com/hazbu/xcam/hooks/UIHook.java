@@ -73,7 +73,7 @@ public class UIHook {
 
                         @Override
                         public void surfaceDestroyed(@NonNull SurfaceHolder h) {
-                            module.stopCamera1Engine();
+                            module.stopEngine();
                         }
                     });
                 }
