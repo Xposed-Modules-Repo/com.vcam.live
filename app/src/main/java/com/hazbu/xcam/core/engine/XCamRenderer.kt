@@ -3,7 +3,6 @@ package com.hazbu.xcam.core.engine
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.graphics.SurfaceTexture
-import android.media.MediaPlayer
 import android.opengl.*
 import android.view.Surface
 import androidx.core.net.toUri
@@ -17,13 +16,13 @@ class XCamRenderer(
     val currentPath: String,
     private val isMirrored: Boolean,
     private val rotationAngle: Int,
+    private val mediaEngine: MediaEngine,
     private val printLog: (String) -> Unit
 ) {
     private var program = 0
     private var textureId = -1
     private var isOES = false
     private var surfaceTexture: SurfaceTexture? = null
-    private var mediaPlayer: MediaPlayer? = null
     private val frameAvailable = AtomicBoolean(false)
     private val mvpMatrix = FloatArray(16)
     private val stMatrix = FloatArray(16)
@@ -57,22 +56,17 @@ class XCamRenderer(
                 GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
                 GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
                 surfaceTexture = SurfaceTexture(textureId).apply { setOnFrameAvailableListener { frameAvailable.set(true) } }
-                mediaPlayer = MediaPlayer().apply {
-                    setDataSource(context, currentPath.toUri())
-                    setSurface(Surface(surfaceTexture))
-                    isLooping = true
-                    setOnPreparedListener { 
-                        mediaW = it.videoWidth
-                        mediaH = it.videoHeight
-                        it.start() 
-                    }
-                    prepareAsync()
+                
+                mediaEngine.play(context, currentPath, Surface(surfaceTexture), "Renderer") { mp ->
+                    mediaW = mp.videoWidth
+                    mediaH = mp.videoHeight
                 }
             } else {
                 isOES = false
                 val bitmap = context.contentResolver.openInputStream(currentPath.toUri())?.use { BitmapFactory.decodeStream(it) }
                 if (bitmap != null) {
-                    mediaW = bitmap.width; mediaH = bitmap.height
+                    mediaW = bitmap.width
+                    mediaH = bitmap.height
                     logRender("[+] Image Loaded: ${mediaW}x${mediaH}")
                     val tex = IntArray(1).also { GLES20.glGenTextures(1, it, 0) }
                     textureId = tex[0]
@@ -176,5 +170,5 @@ class XCamRenderer(
         if (isMirrored) Matrix.scaleM(mvpMatrix, 0, -1f, 1f, 1f)
     }
 
-    fun release() { try { mediaPlayer?.release(); surfaceTexture?.release(); GLES20.glDeleteProgram(program) } catch (_: Exception) {} }
+    fun release() { try { surfaceTexture?.release(); GLES20.glDeleteProgram(program) } catch (_: Exception) {} }
 }

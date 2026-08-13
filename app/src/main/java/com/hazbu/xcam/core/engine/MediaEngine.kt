@@ -12,6 +12,11 @@ class MediaEngine(private val logAction: (String) -> Unit) {
     private var mediaPlayer: MediaPlayer? = null
     private var isBusy = false
     
+    var videoWidth = 0
+        private set
+    var videoHeight = 0
+        private set
+
     val isPlaying: Boolean get() = mediaPlayer?.isPlaying == true
     val currentPosition: Int get() = mediaPlayer?.currentPosition ?: 0
 
@@ -29,11 +34,19 @@ class MediaEngine(private val logAction: (String) -> Unit) {
             log("MEDIA-ENGINE", "Stop failed: ${e.message}")
         } finally {
             mediaPlayer = null
+            videoWidth = 0
+            videoHeight = 0
             isBusy = false
         }
     }
 
-    fun play(context: Context, path: String, surface: Surface, tag: String) {
+    fun play(
+        context: Context,
+        path: String,
+        surface: Surface,
+        tag: String,
+        onPrepared: ((MediaPlayer) -> Unit)? = null
+    ) {
         if (isBusy) return
         stop()
         
@@ -46,9 +59,12 @@ class MediaEngine(private val logAction: (String) -> Unit) {
             
             setOnPreparedListener {
                 isBusy = false
+                this@MediaEngine.videoWidth = it.videoWidth
+                this@MediaEngine.videoHeight = it.videoHeight
                 try {
                     it.start()
-                    log(tag, "Player ACTIVE")
+                    log(tag, "Player ACTIVE (${this@MediaEngine.videoWidth}x${this@MediaEngine.videoHeight})")
+                    onPrepared?.invoke(it)
                 } catch (e: Throwable) {
                     log(tag, "Start failed: ${e.message}")
                 }

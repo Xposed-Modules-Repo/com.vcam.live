@@ -48,7 +48,7 @@ class XCamEngine(
 
         return try {
             val renderer = xRenderer.takeIf { it?.currentPath == path } 
-                ?: XCamRenderer(context, path, settings.isMirrored, settings.rotationAngle, logAction).also { 
+                ?: XCamRenderer(context, path, settings.isMirrored, settings.rotationAngle, mediaEngine, logAction).also { 
                     xRenderer?.release()
                     xRenderer = it 
                 }
