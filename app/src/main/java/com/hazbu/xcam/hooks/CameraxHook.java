@@ -1,6 +1,6 @@
 package com.hazbu.xcam.hooks;
 
-import com.hazbu.xcam.XCamModule;
+import com.hazbu.xcam.xposed.XCamModule;
 
 import java.lang.reflect.Method;
 

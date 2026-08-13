@@ -9,7 +9,7 @@ import android.os.Looper;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 
-import com.hazbu.xcam.XCamModule;
+import com.hazbu.xcam.xposed.XCamModule;
 
 import java.lang.reflect.Method;
 

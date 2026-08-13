@@ -1,4 +1,4 @@
-package com.hazbu.xcam
+package com.hazbu.xcam.data
 
 import android.content.ContentProvider
 import android.content.ContentValues
@@ -6,12 +6,12 @@ import android.content.Context
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
-import com.hazbu.xcam.Constants.AUTHORITY
-import com.hazbu.xcam.Constants.KEY_IS_ENABLED
-import com.hazbu.xcam.Constants.KEY_IS_MIRRORED
-import com.hazbu.xcam.Constants.KEY_ROTATION_ANGLE
-import com.hazbu.xcam.Constants.KEY_MEDIA_PATH
-import com.hazbu.xcam.Constants.PREFS_NAME
+import com.hazbu.xcam.data.Constants.AUTHORITY
+import com.hazbu.xcam.data.Constants.KEY_IS_ENABLED
+import com.hazbu.xcam.data.Constants.KEY_IS_MIRRORED
+import com.hazbu.xcam.data.Constants.KEY_ROTATION_ANGLE
+import com.hazbu.xcam.data.Constants.KEY_MEDIA_PATH
+import com.hazbu.xcam.data.Constants.PREFS_NAME
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import java.io.File

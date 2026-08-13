@@ -1,4 +1,4 @@
-package com.hazbu.xcam
+package com.hazbu.xcam.xposed
 
 import com.hazbu.xcam.hooks.*
 import io.github.libxposed.api.XposedModuleInterface

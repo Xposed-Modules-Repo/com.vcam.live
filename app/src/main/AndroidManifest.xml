@@ -40,7 +40,7 @@
             tools:ignore="ExportedContentProvider" />
 
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -48,7 +48,7 @@
             </intent-filter>
         </activity>
         <provider
-            android:name=".SettingsProvider"
+            android:name=".data.SettingsProvider"
             android:authorities="com.hazbu.xcam.provider"
             android:exported="true"
             tools:ignore="ExportedContentProvider" />

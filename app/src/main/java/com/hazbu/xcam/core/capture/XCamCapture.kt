@@ -1,4 +1,4 @@
-package com.hazbu.xcam.core
+package com.hazbu.xcam.core.capture
 
 import android.content.Context
 import android.graphics.Bitmap

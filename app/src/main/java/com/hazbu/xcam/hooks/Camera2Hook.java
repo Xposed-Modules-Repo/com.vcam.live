@@ -5,7 +5,7 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.view.Surface;
 
-import com.hazbu.xcam.XCamModule;
+import com.hazbu.xcam.xposed.XCamModule;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
@@ -62,19 +62,12 @@ public class Camera2Hook {
         if (arg instanceof Surface) {
             Surface s = (Surface) arg;
             module.logSessionOutput(s);
-            String sStr = s.toString();
-            if (sStr.contains("SurfaceTexture") || sStr.contains("SurfaceView")) {
+            if (s.toString().contains("SurfaceTexture") || s.toString().contains("SurfaceView")) {
                 module.registerPreviewSurface(s);
             }
         } else if (arg instanceof OutputConfiguration) {
             Surface s = ((OutputConfiguration) arg).getSurface();
-            if (s != null) {
-                module.logSessionOutput(s);
-                String sStr = s.toString();
-                if (sStr.contains("SurfaceTexture") || sStr.contains("SurfaceView")) {
-                    module.registerPreviewSurface(s);
-                }
-            }
+            if (s != null) inspectDiscoveryArgument(s);
         } else if (arg instanceof Collection) {
             for (Object item : (Collection<?>) arg) inspectDiscoveryArgument(item);
         }
@@ -89,12 +82,13 @@ public class Camera2Hook {
                     if (firstArg instanceof Surface && ((Surface) firstArg).isValid() && module.getMediaPath() != null) {
                         Surface surface = (Surface) firstArg;
                         String sStr = surface.toString();
+                        
                         if (sStr.contains("SurfaceTexture") || sStr.contains("SurfaceView")) {
                             module.registerPreviewSurface(surface);
                         }
                         
                         if (sStr.contains("SurfaceTexture") && !module.getPreviewSwapped()) {
-                            module.logHook("[!] Action: Swapping Preview Surface via OutputConfiguration");
+                            module.logHook("[!] Action: Hijacking Preview Surface via OutputConfiguration");
                             module.setPreviewSwapped(true);
                             module.handleModernPreview(surface);
                             
@@ -105,8 +99,8 @@ public class Camera2Hook {
                     }
                     return chain.proceed();
                 });
-                module.logHook("[+] Hooked: OutputConfiguration Constructor");
             }
+            module.logHook("[+] Hooked: OutputConfiguration Constructor");
         } catch (Throwable t) {
             module.logHook("[!] Modern Hijack hook failed: " + t.getMessage());
         }

@@ -6,7 +6,7 @@ import android.os.Looper;
 import android.view.SurfaceHolder;
 
 import androidx.annotation.NonNull;
-import com.hazbu.xcam.XCamModule;
+import com.hazbu.xcam.xposed.XCamModule;
 
 import java.lang.reflect.Method;
 

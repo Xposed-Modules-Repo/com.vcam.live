@@ -5,7 +5,7 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.provider.MediaStore;
 
-import com.hazbu.xcam.XCamModule;
+import com.hazbu.xcam.xposed.XCamModule;
 
 import java.lang.reflect.Method;
 

@@ -3,7 +3,7 @@ package com.hazbu.xcam.hooks;
 import android.graphics.SurfaceTexture;
 import android.view.Surface;
 
-import com.hazbu.xcam.XCamModule;
+import com.hazbu.xcam.xposed.XCamModule;
 
 import java.lang.reflect.Method;
 

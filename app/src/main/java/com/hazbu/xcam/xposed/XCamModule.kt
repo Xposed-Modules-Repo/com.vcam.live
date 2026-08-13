@@ -1,11 +1,17 @@
-package com.hazbu.xcam
+package com.hazbu.xcam.xposed
 
 import android.content.Context
 import android.graphics.SurfaceTexture
 import android.os.Build
 import android.view.Surface
 import android.view.SurfaceHolder
-import com.hazbu.xcam.core.*
+import com.hazbu.xcam.core.capture.CaptureManager
+import com.hazbu.xcam.core.capture.YuvFrameProcessor
+import com.hazbu.xcam.core.engine.MediaEngine
+import com.hazbu.xcam.core.engine.XCamEngine
+import com.hazbu.xcam.core.settings.SettingsManager
+import com.hazbu.xcam.core.surface.SurfaceManager
+import com.hazbu.xcam.core.surface.SurfaceProvider
 import com.hazbu.xcam.utils.Logger
 import com.hazbu.xcam.utils.SystemUtils
 import com.hazbu.xcam.utils.UIUtils
@@ -17,26 +23,33 @@ class XCamModule : XposedModule() {
     private var mContext: Context? = null
     private var hooksInstalled = false
     private val ignoreHooks = ThreadLocal.withInitial { false }
-    fun isIgnoringHooks(): Boolean = ignoreHooks.get() ?: false
-    fun setIgnoringHooks(ignore: Boolean) { ignoreHooks.set(ignore) }
+    
     private val injectors = XCamInjectors(this)
-
-    // Components
-    private val settingsManager = SettingsManager()
+    private val settings = SettingsManager()
     private val surfaceManager = SurfaceManager { printLog(it) }
+    private val surfaceProvider = SurfaceProvider { printLog(it) }
+    private val mediaEngine = MediaEngine { printLog(it) }
+    private val yuvProcessor = YuvFrameProcessor()
+    
     private val captureManager = CaptureManager(
         contextProvider = { mContext },
-        refreshSettingsAction = { settingsManager.refreshSettings(it) },
+        refreshSettingsAction = { settings.refreshSettings(it) },
         logAction = { printLog(it) }
     )
+    
     private val engine = XCamEngine(
         contextProvider = { mContext },
-        settingsProvider = { settingsManager },
+        settingsProvider = { settings },
         surfaceManager = surfaceManager,
+        mediaEngine = mediaEngine,
+        surfaceProvider = surfaceProvider,
         logAction = { printLog(it) }
     )
 
-    val mediaPath: String? get() = settingsManager.mediaPath
+    fun isIgnoringHooks(): Boolean = ignoreHooks.get() ?: false
+    fun setIgnoringHooks(ignore: Boolean) { ignoreHooks.set(ignore) }
+
+    val mediaPath: String? get() = settings.mediaPath
     var previewSwapped: Boolean
         get() = surfaceManager.previewSwapped
         set(value) { surfaceManager.previewSwapped = value }
@@ -53,24 +66,47 @@ class XCamModule : XposedModule() {
     fun logHook(msg: String) = Logger.d(this, "[HOOK] $msg")
     fun logSettings(msg: String) = Logger.i(this, "[SETTINGS] $msg")
 
-    fun showToast(message: String) {
-        UIUtils.showToast(mContext, message) { printLog(it) }
-    }
+    fun showToast(message: String) = UIUtils.showToast(mContext, message) { printLog(it) }
 
-    fun isCapturingState(): Boolean = captureManager.isCapturing
+    fun isCapturingState() = captureManager.isCapturing
 
     fun triggerCaptureState() {
         captureManager.triggerCaptureState { engine.getCurrentPosition() }
     }
 
-    fun registerPreviewSurface(surface: Surface) = surfaceManager.registerPreviewSurface(surface)
-    fun registerImageReaderSurface(surface: Surface, format: Int, width: Int, height: Int) =
-        surfaceManager.registerImageReaderSurface(surface, format, width, height)
-    fun isPreviewSurface(surface: Surface?): Boolean = surfaceManager.isPreviewSurface(surface)
-    fun logSessionOutput(surface: Surface) = surfaceManager.logSessionOutput(surface)
+    // Surface Management
+    fun registerPreviewSurface(s: Surface) = surfaceManager.registerPreviewSurface(s)
+    fun registerImageReaderSurface(s: Surface, f: Int, w: Int, h: Int) = surfaceManager.registerImageReaderSurface(s, f, w, h)
+    fun isPreviewSurface(s: Surface?) = surfaceManager.isPreviewSurface(s)
+    fun logSessionOutput(s: Surface) = surfaceManager.logSessionOutput(s)
     fun incrementSessionGeneration() = surfaceManager.incrementSessionGeneration()
     fun getSessionGeneration() = surfaceManager.sessionGeneration
     fun clearPreviewSurfaces() = surfaceManager.clearPreviewSurfaces(engine.isPlaying())
+
+    // Frame Processing
+    fun injectYuvFrame(image: android.media.Image, width: Int, height: Int) {
+        val jpeg = handleStreamFrame(width, height) ?: return
+        yuvProcessor.injectToImage(image, jpeg)
+    }
+
+    // Engine Delegation
+    fun stopCamera1Engine() = engine.stop()
+    fun handlePreview(w: Int, h: Int) = engine.handlePreview(w, h)
+    fun handleCamera1Preview(st: SurfaceTexture) = engine.handleCamera1Preview(st)
+    fun handleModernPreview(s: Surface) = engine.handleModernPreview(s)
+    fun handleSurfaceViewPreview(h: SurfaceHolder) = engine.handleSurfaceViewPreview(h)
+    fun getDummySurface() = engine.getDummySurface()
+
+    // Capture Delegation
+    fun handleCapture(w: Int, h: Int) = captureManager.handleCapture(
+        settings.mediaPath, w, h, settings.rotationAngle, settings.isMirrored,
+        { isIgnoringHooks() }, { setIgnoringHooks(it) }
+    )
+
+    fun handleStreamFrame(w: Int, h: Int) = captureManager.handleStreamFrame(
+        settings.mediaPath, w, h, settings.rotationAngle, settings.isMirrored,
+        { isIgnoringHooks() }, { setIgnoringHooks(it) }
+    )
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
         super.onPackageReady(param)
@@ -84,6 +120,7 @@ class XCamModule : XposedModule() {
         if (hooksInstalled) return
         hooksInstalled = true
 
+        incrementSessionGeneration()
         clearPreviewSurfaces()
         logInit(">>> ACTIVE IN: $processName (API ${Build.VERSION.SDK_INT}) <<<")
         hookContextInit()
@@ -92,7 +129,7 @@ class XCamModule : XposedModule() {
 
     private fun hookManagerApp(param: XposedModuleInterface.PackageReadyParam) {
         try {
-            val clazz = param.classLoader.loadClass("com.hazbu.xcam.MainActivity")
+            val clazz = param.classLoader.loadClass("com.hazbu.xcam.ui.MainActivity")
             hook(clazz.getDeclaredMethod("checkSelfActive")).intercept { true }
         } catch (_: Throwable) {}
     }
@@ -107,10 +144,7 @@ class XCamModule : XposedModule() {
                 if (!isInitialized) {
                     mContext = chain.thisObject as? Context
                     logInit("Context Initialized: ${mContext?.packageName}")
-                    mContext?.let { 
-                        settingsManager.refreshSettings(it)
-                        logSettings("Initial settings loaded for ${it.packageName}")
-                    }
+                    mContext?.let { settings.refreshSettings(it) }
                     isInitialized = true
                 }
                 result
@@ -118,36 +152,5 @@ class XCamModule : XposedModule() {
         } catch (e: Exception) {
             logInit("Context hook failure: ${e.message}")
         }
-    }
-
-    fun stopCamera1Engine() = engine.stopCamera1Engine()
-    fun handlePreview(width: Int, height: Int): Boolean = engine.handlePreview(width, height)
-    fun handleCamera1Preview(st: SurfaceTexture) = engine.handleCamera1Preview(st)
-    fun handleModernPreview(surface: Surface) = engine.handleModernPreview(surface)
-    fun handleSurfaceViewPreview(holder: SurfaceHolder) = engine.handleSurfaceViewPreview(holder)
-    fun getDummySurface(): Surface = engine.getDummySurface()
-
-    fun handleCapture(width: Int, height: Int): ByteArray? {
-        return captureManager.handleCapture(
-            path = settingsManager.mediaPath,
-            width = width,
-            height = height,
-            rotationAngle = settingsManager.rotationAngle,
-            isMirrored = settingsManager.isMirrored,
-            isIgnoringHooks = { isIgnoringHooks() },
-            setIgnoringHooks = { setIgnoringHooks(it) }
-        )
-    }
-
-    fun handleStreamFrame(width: Int, height: Int): ByteArray? {
-        return captureManager.handleStreamFrame(
-            path = settingsManager.mediaPath,
-            width = width,
-            height = height,
-            rotationAngle = settingsManager.rotationAngle,
-            isMirrored = settingsManager.isMirrored,
-            isIgnoringHooks = { isIgnoringHooks() },
-            setIgnoringHooks = { setIgnoringHooks(it) }
-        )
     }
 }

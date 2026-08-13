@@ -10,7 +10,7 @@
 -keep class io.github.libxposed.service.** { *; }
 -keep interface io.github.libxposed.service.** { *; }
 
--keep public class com.hazbu.xcam.XCamModule {
+-keep public class com.hazbu.xcam.xposed.XCamModule {
     public <init>(io.github.libxposed.api.XposedInterface, io.github.libxposed.api.XposedModuleInterface$ModuleLoadedParam);
 }
 

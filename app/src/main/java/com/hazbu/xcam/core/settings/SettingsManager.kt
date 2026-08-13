@@ -1,8 +1,8 @@
-package com.hazbu.xcam.core
+package com.hazbu.xcam.core.settings
 
 import android.content.Context
 import androidx.core.net.toUri
-import com.hazbu.xcam.Constants.AUTHORITY
+import com.hazbu.xcam.data.Constants.AUTHORITY
 
 class SettingsManager {
     var mediaPath: String? = null

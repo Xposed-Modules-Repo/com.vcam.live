@@ -1,4 +1,4 @@
-package com.hazbu.xcam
+package com.hazbu.xcam.ui
 
 import android.content.Intent
 import android.graphics.BitmapFactory
@@ -23,10 +23,11 @@ import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.color.DynamicColors
 import com.google.android.material.color.MaterialColors
-import com.hazbu.xcam.Constants.KEY_IS_MIRRORED
-import com.hazbu.xcam.Constants.KEY_ROTATION_ANGLE
-import com.hazbu.xcam.Constants.KEY_MEDIA_PATH
-import com.hazbu.xcam.Constants.PREFS_NAME
+import com.hazbu.xcam.R
+import com.hazbu.xcam.data.Constants.KEY_IS_MIRRORED
+import com.hazbu.xcam.data.Constants.KEY_ROTATION_ANGLE
+import com.hazbu.xcam.data.Constants.KEY_MEDIA_PATH
+import com.hazbu.xcam.data.Constants.PREFS_NAME
 import java.io.File
 import java.io.FileOutputStream
 import io.github.libxposed.service.XposedService

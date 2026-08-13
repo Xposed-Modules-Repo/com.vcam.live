@@ -1,4 +1,4 @@
-package com.hazbu.xcam.core
+package com.hazbu.xcam.core.engine
 
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -90,13 +90,51 @@ class XCamRenderer(
     }
 
     private fun initShaders() {
-        val vs = "attribute vec4 aPosition; attribute vec2 aTextureCoord; varying vec2 vTextureCoord; uniform mat4 uSTMatrix; uniform mat4 uMVPMatrix; void main() { gl_Position = uMVPMatrix * aPosition; vTextureCoord = (uSTMatrix * vec4(aTextureCoord, 0.0, 1.0)).xy; }"
-        val fs = if (isOES) "#extension GL_OES_EGL_image_external : require\nprecision mediump float; varying vec2 vTextureCoord; uniform samplerExternalOES sTexture; void main() { gl_FragColor = texture2D(sTexture, vTextureCoord); }"
-        else "precision mediump float; varying vec2 vTextureCoord; uniform sampler2D sTexture; void main() { gl_FragColor = texture2D(sTexture, vTextureCoord); }"
+        val vs = """
+            attribute vec4 aPosition;
+            attribute vec2 aTextureCoord;
+            varying vec2 vTextureCoord;
+            uniform mat4 uSTMatrix;
+            uniform mat4 uMVPMatrix;
+            void main() {
+                gl_Position = uMVPMatrix * aPosition;
+                vTextureCoord = (uSTMatrix * vec4(aTextureCoord, 0.0, 1.0)).xy;
+            }
+        """.trimIndent()
+        
+        val fs = if (isOES) {
+            """
+                #extension GL_OES_EGL_image_external : require
+                precision mediump float;
+                varying vec2 vTextureCoord;
+                uniform samplerExternalOES sTexture;
+                void main() {
+                    gl_FragColor = texture2D(sTexture, vTextureCoord);
+                }
+            """.trimIndent()
+        } else {
+            """
+                precision mediump float;
+                varying vec2 vTextureCoord;
+                uniform sampler2D sTexture;
+                void main() {
+                    gl_FragColor = texture2D(sTexture, vTextureCoord);
+                }
+            """.trimIndent()
+        }
+        
         program = GLES20.glCreateProgram().apply {
-            val vShader = GLES20.glCreateShader(GLES20.GL_VERTEX_SHADER).apply { GLES20.glShaderSource(this, vs); GLES20.glCompileShader(this) }
-            val fShader = GLES20.glCreateShader(GLES20.GL_FRAGMENT_SHADER).apply { GLES20.glShaderSource(this, fs); GLES20.glCompileShader(this) }
-            GLES20.glAttachShader(this, vShader); GLES20.glAttachShader(this, fShader); GLES20.glLinkProgram(this)
+            val vShader = GLES20.glCreateShader(GLES20.GL_VERTEX_SHADER).apply { 
+                GLES20.glShaderSource(this, vs)
+                GLES20.glCompileShader(this) 
+            }
+            val fShader = GLES20.glCreateShader(GLES20.GL_FRAGMENT_SHADER).apply { 
+                GLES20.glShaderSource(this, fs)
+                GLES20.glCompileShader(this) 
+            }
+            GLES20.glAttachShader(this, vShader)
+            GLES20.glAttachShader(this, fShader)
+            GLES20.glLinkProgram(this)
         }
     }
 
