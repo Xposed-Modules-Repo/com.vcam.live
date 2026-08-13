@@ -6,10 +6,13 @@ import android.graphics.ImageFormat;
 import android.media.Image;
 import android.media.ImageReader;
 import com.hazbu.xcam.XCamModule;
+import com.hazbu.xcam.utils.SystemUtils;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 import io.github.libxposed.api.XposedModuleInterface;
 
 /**
@@ -21,7 +24,29 @@ public class ImageReaderHook {
     private final XCamModule module;
     private final Set<String> detectedFlows = new HashSet<>();
     private final Set<String> injectedFlows = new HashSet<>();
+    private final Map<ImageReader, ReaderMetadata> readerTracker = new WeakHashMap<>();
     private YuvFrame cachedYuvFrame;
+
+    private static class ReaderMetadata {
+        final int width;
+        final int height;
+        final int format;
+        final String formatName;
+        final long surfaceId;
+
+        ReaderMetadata(int width, int height, int format, String formatName, long surfaceId) {
+            this.width = width;
+            this.height = height;
+            this.format = format;
+            this.formatName = formatName;
+            this.surfaceId = surfaceId;
+        }
+
+        @Override
+        public String toString() {
+            return width + "x" + height + " " + formatName + " (ID: " + surfaceId + ")";
+        }
+    }
 
     public ImageReaderHook(XCamModule module) {
         this.module = module;
@@ -61,19 +86,37 @@ public class ImageReaderHook {
                         Object result = chain.proceed();
                         if (result instanceof ImageReader) {
                             ImageReader reader = (ImageReader) result;
+                            long surfaceId = SystemUtils.INSTANCE.getSurfaceId(reader.getSurface());
+                            readerTracker.put(reader, new ReaderMetadata(w, h, format, fmtName, surfaceId));
                             module.registerImageReaderSurface(reader.getSurface(), format, w, h);
+                            module.logHook("[+] ImageReader.newInstance: " + w + "x" + h + " " + fmtName + " | ID: " + surfaceId);
                         }
-                        module.logHook("[+] Hooked: ImageReader.newInstance (" + w + "x" + h + " " + fmtName + ")");
                         return result;
                     });
                 }
             }
+
+            // Hook setOnImageAvailableListener
+            try {
+                Method setListener = ImageReader.class.getDeclaredMethod("setOnImageAvailableListener", ImageReader.OnImageAvailableListener.class, android.os.Handler.class);
+                module.hook(setListener).intercept(chain -> {
+                    ImageReader reader = (ImageReader) chain.getThisObject();
+                    ReaderMetadata meta = readerTracker.get(reader);
+                    module.logHook("[*] ImageReader.setOnImageAvailableListener | Reader: " + (meta != null ? meta.toString() : "unknown") + " | Thread: " + Thread.currentThread().getName());
+                    return chain.proceed();
+                });
+                module.logHook("[+] Hooked: ImageReader#setOnImageAvailableListener");
+            } catch (Throwable ignored) {}
 
             // Hook acquireLatestImage
             try {
                 Method acquireLatest = ImageReader.class.getDeclaredMethod("acquireLatestImage");
                 module.hook(acquireLatest).intercept(chain -> {
                     ImageReader reader = (ImageReader) chain.getThisObject();
+                    ReaderMetadata meta = readerTracker.get(reader);
+                    if (meta != null && meta.width == 960 && meta.format == ImageFormat.YUV_420_888) {
+                         module.logHook("[*] ImageReader.acquireLatestImage | Reader: " + meta + " | Thread: " + Thread.currentThread().getName());
+                    }
                     Object result = chain.proceed();
                     if (result instanceof Image) {
                         processAcquiredImage(reader, (Image) result);
@@ -88,6 +131,10 @@ public class ImageReaderHook {
                 Method acquireNext = ImageReader.class.getDeclaredMethod("acquireNextImage");
                 module.hook(acquireNext).intercept(chain -> {
                     ImageReader reader = (ImageReader) chain.getThisObject();
+                    ReaderMetadata meta = readerTracker.get(reader);
+                    if (meta != null && meta.width == 960 && meta.format == ImageFormat.YUV_420_888) {
+                        module.logHook("[*] ImageReader.acquireNextImage | Reader: " + meta + " | Thread: " + Thread.currentThread().getName());
+                    }
                     Object result = chain.proceed();
                     if (result instanceof Image) {
                         processAcquiredImage(reader, (Image) result);
@@ -95,6 +142,18 @@ public class ImageReaderHook {
                     return result;
                 });
                 module.logHook("[+] Hooked: ImageReader#acquireNextImage");
+            } catch (Throwable ignored) {}
+
+            // Hook close
+            try {
+                Method close = ImageReader.class.getDeclaredMethod("close");
+                module.hook(close).intercept(chain -> {
+                    ImageReader reader = (ImageReader) chain.getThisObject();
+                    ReaderMetadata meta = readerTracker.get(reader);
+                    module.logHook("[*] ImageReader.close | Reader: " + (meta != null ? meta.toString() : "unknown"));
+                    return chain.proceed();
+                });
+                module.logHook("[+] Hooked: ImageReader#close");
             } catch (Throwable ignored) {}
             
         } catch (Throwable t) {
