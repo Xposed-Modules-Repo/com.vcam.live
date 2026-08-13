@@ -48,7 +48,7 @@ class XCamRenderer(
     private fun setup() {
         logRender("Starting Renderer Setup for: $currentPath")
         try {
-            if (currentPath.lowercase().endsWith(".mp4")) {
+            if (currentPath.lowercase().endsWith(".mp4") || currentPath.lowercase().endsWith(".jpg") || currentPath.lowercase().endsWith(".png")) {
                 isOES = true
                 val tex = IntArray(1).also { GLES20.glGenTextures(1, it, 0) }
                 textureId = tex[0]
@@ -58,8 +58,8 @@ class XCamRenderer(
                 surfaceTexture = SurfaceTexture(textureId).apply { setOnFrameAvailableListener { frameAvailable.set(true) } }
                 
                 mediaEngine.play(context, currentPath, Surface(surfaceTexture), "Renderer") { mp ->
-                    mediaW = mp.videoWidth
-                    mediaH = mp.videoHeight
+                    mediaW = mp.videoSize.width
+                    mediaH = mp.videoSize.height
                 }
             } else {
                 isOES = false

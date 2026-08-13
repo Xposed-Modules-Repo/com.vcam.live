@@ -1,39 +1,50 @@
 package com.hazbu.xcam.core.engine
 
 import android.content.Context
-import android.media.MediaPlayer
 import android.view.Surface
 import androidx.core.net.toUri
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 
 /**
- * Handles MediaPlayer lifecycle and state management for video injection.
+ * Handles Media3/ExoPlayer lifecycle and state management for video injection.
  */
 class MediaEngine(private val logAction: (String) -> Unit) {
-    private var mediaPlayer: MediaPlayer? = null
+
+    private var player: ExoPlayer? = null
     private var isBusy = false
-    
+
     var videoWidth = 0
         private set
+
     var videoHeight = 0
         private set
 
-    val isPlaying: Boolean get() = mediaPlayer?.isPlaying == true
-    val currentPosition: Int get() = mediaPlayer?.currentPosition ?: 0
+    val isPlaying: Boolean
+        get() = player?.isPlaying == true
 
-    private fun log(tag: String, msg: String) = logAction("[$tag] $msg")
+    val currentPosition: Long
+        get() = player?.currentPosition ?: 0L
+
+    private fun log(tag: String, msg: String) {
+        logAction("[$tag] $msg")
+    }
 
     fun stop() {
         isBusy = true
+
         try {
-            mediaPlayer?.apply {
-                if (isPlaying) stop()
-                reset()
+            player?.apply {
+                stop()
+                clearVideoSurface()
                 release()
             }
         } catch (e: Throwable) {
             log("MEDIA-ENGINE", "Stop failed: ${e.message}")
         } finally {
-            mediaPlayer = null
+            player = null
             videoWidth = 0
             videoHeight = 0
             isBusy = false
@@ -45,44 +56,110 @@ class MediaEngine(private val logAction: (String) -> Unit) {
         path: String,
         surface: Surface,
         tag: String,
-        onPrepared: ((MediaPlayer) -> Unit)? = null
+        onPrepared: ((ExoPlayer) -> Unit)? = null
     ) {
         if (isBusy) return
+
         stop()
-        
+
         isBusy = true
-        MediaPlayer().apply {
-            setDataSource(context, path.toUri())
-            setSurface(surface)
-            isLooping = true
-            mediaPlayer = this
-            
-            setOnPreparedListener {
-                isBusy = false
-                this@MediaEngine.videoWidth = it.videoWidth
-                this@MediaEngine.videoHeight = it.videoHeight
-                try {
-                    it.start()
-                    log(tag, "Player ACTIVE (${this@MediaEngine.videoWidth}x${this@MediaEngine.videoHeight})")
-                    onPrepared?.invoke(it)
-                } catch (e: Throwable) {
-                    log(tag, "Start failed: ${e.message}")
+
+        try {
+            val exoPlayer = ExoPlayer.Builder(context.applicationContext)
+                .build()
+
+            player = exoPlayer
+
+            val mediaItem = MediaItem.fromUri(path.toUri())
+
+            exoPlayer.setMediaItem(mediaItem)
+
+            // Penting untuk pipeline xCam:
+            // langsung render video ke Surface yang diberikan.
+            exoPlayer.setVideoSurface(surface)
+
+            exoPlayer.repeatMode = Player.REPEAT_MODE_ONE
+
+            exoPlayer.addListener(object : Player.Listener {
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    when (playbackState) {
+
+                        Player.STATE_READY -> {
+                            if (!isBusy) return
+
+                            isBusy = false
+
+                            videoWidth = exoPlayer.videoSize.width
+                            videoHeight = exoPlayer.videoSize.height
+
+                            try {
+                                exoPlayer.play()
+
+                                log(
+                                    tag,
+                                    "Player ACTIVE (${videoWidth}x${videoHeight})"
+                                )
+
+                                onPrepared?.invoke(exoPlayer)
+
+                            } catch (e: Throwable) {
+                                log(
+                                    tag,
+                                    "Start failed: ${e.message}"
+                                )
+                            }
+                        }
+
+                        Player.STATE_BUFFERING -> {
+                            log(tag, "Player buffering")
+                        }
+
+                        Player.STATE_ENDED -> {
+                            log(tag, "Player ended")
+                        }
+
+                        Player.STATE_IDLE -> {
+                            // Ignore
+                        }
+                    }
                 }
-            }
-            
-            setOnErrorListener { _, what, extra ->
-                isBusy = false
-                log(tag, "Player Error ($what, $extra)")
-                stop()
-                true
-            }
-            
+
+                override fun onPlayerError(error: PlaybackException) {
+                    isBusy = false
+
+                    log(
+                        tag,
+                        "Player Error: ${error.errorCodeName} | ${error.message}"
+                    )
+
+                    stop()
+                }
+            })
+
+            exoPlayer.prepare()
+
+        } catch (e: Throwable) {
+            isBusy = false
+
+            log(
+                tag,
+                "Prepare failed: ${e.message}"
+            )
+
             try {
-                prepareAsync()
-            } catch (e: Exception) {
-                isBusy = false
-                log(tag, "Prepare failed: ${e.message}")
+                player?.release()
+            } catch (_: Throwable) {
             }
+
+            player = null
         }
+    }
+
+    /**
+     * Optional helper if Surface changes while the player is alive.
+     */
+    fun setSurface(surface: Surface?) {
+        player?.setVideoSurface(surface)
     }
 }

@@ -68,7 +68,7 @@ class XCamModule : XposedModule() {
     fun isCapturingState() = captureManager.isCapturing
 
     fun triggerCaptureState() {
-        captureManager.triggerCaptureState { engine.getCurrentPosition() }
+        captureManager.triggerCaptureState { engine.getCurrentPosition().toInt() }
     }
 
     // Surface Management
