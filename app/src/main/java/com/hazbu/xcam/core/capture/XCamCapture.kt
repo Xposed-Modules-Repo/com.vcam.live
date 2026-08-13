@@ -79,7 +79,7 @@ object XCamCapture {
             canvas.drawBitmap(transformedSource, left, top, null)
 
             val out = ByteArrayOutputStream()
-            finalBitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+            finalBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
             val result = out.toByteArray()
 
             printLog("Capture Process: SUCCESS. Final Size ${finalBitmap.width}x${finalBitmap.height} (${result.size} bytes)")

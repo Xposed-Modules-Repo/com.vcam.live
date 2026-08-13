@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.view.Surface
+import android.webkit.MimeTypeMap
 import androidx.core.net.toUri
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
@@ -29,6 +30,13 @@ class MediaEngine(private val logAction: (String) -> Unit) {
     private var isPlayingInternal = false
 
     @Volatile
+    private var isImageInternal = false
+
+    private var imageBitmap: android.graphics.Bitmap? = null
+    private var cachedScaledBitmap: android.graphics.Bitmap? = null
+    private var imageLoopRunnable: Runnable? = null
+
+    @Volatile
     private var currentPositionInternal = 0L
 
     @Volatile
@@ -41,6 +49,9 @@ class MediaEngine(private val logAction: (String) -> Unit) {
 
     val isPlaying: Boolean
         get() = isPlayingInternal
+
+    val isImage: Boolean
+        get() = isImageInternal
 
     val currentPosition: Long
         get() = if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -56,6 +67,7 @@ class MediaEngine(private val logAction: (String) -> Unit) {
     fun stop() {
         mainHandler.post {
             isBusy = true
+            stopImageLoop()
             try {
                 player?.apply {
                     stop()
@@ -67,11 +79,98 @@ class MediaEngine(private val logAction: (String) -> Unit) {
             } finally {
                 player = null
                 isPlayingInternal = false
+                isImageInternal = false
                 currentPositionInternal = 0L
                 videoWidth = 0
                 videoHeight = 0
                 isBusy = false
             }
+        }
+    }
+
+    private fun stopImageLoop() {
+        imageLoopRunnable?.let { mainHandler.removeCallbacks(it) }
+        imageLoopRunnable = null
+        imageBitmap?.recycle()
+        imageBitmap = null
+        cachedScaledBitmap?.recycle()
+        cachedScaledBitmap = null
+    }
+
+    private fun startImageLoop(
+        context: Context,
+        uri: android.net.Uri,
+        surface: Surface,
+        isMirrored: Boolean,
+        rotationAngle: Int,
+        tag: String
+    ) {
+        stopImageLoop()
+        try {
+            val rawBitmap = context.contentResolver.openInputStream(uri)?.use {
+                android.graphics.BitmapFactory.decodeStream(it)
+            } ?: return
+
+            imageBitmap = rawBitmap
+            isPlayingInternal = true
+
+            imageLoopRunnable = object : Runnable {
+                private var lastTargetW = -1
+                private var lastTargetH = -1
+
+                override fun run() {
+                    if (!isPlayingInternal || imageBitmap == null || !surface.isValid) return
+                    try {
+                        val canvas = surface.lockCanvas(null)
+                        if (canvas != null) {
+                            val targetW = canvas.width
+                            val targetH = canvas.height
+
+                            // Re-calculate transformation if surface size changed
+                            if (targetW != lastTargetW || targetH != lastTargetH) {
+                                lastTargetW = targetW
+                                lastTargetH = targetH
+                                cachedScaledBitmap?.recycle()
+
+                                val sourceW = imageBitmap!!.width
+                                val sourceH = imageBitmap!!.height
+                                
+                                val rotatedSourceW = if (rotationAngle % 180 != 0) sourceH else sourceW
+                                val rotatedSourceH = if (rotationAngle % 180 != 0) sourceW else sourceH
+
+                                // EXACT SCALE from XCamCapture (Fit Center)
+                                val scale = Math.min(targetW.toFloat() / rotatedSourceW, targetH.toFloat() / rotatedSourceH)
+
+                                val matrix = android.graphics.Matrix()
+                                matrix.postScale(scale, scale)
+                                if (rotationAngle != 0) matrix.postRotate(rotationAngle.toFloat())
+                                if (isMirrored) matrix.postScale(-1f, 1f)
+
+                                cachedScaledBitmap = android.graphics.Bitmap.createBitmap(imageBitmap!!, 0, 0, sourceW, sourceH, matrix, true)
+                                
+                                videoWidth = targetW
+                                videoHeight = targetH
+                            }
+
+                            canvas.drawColor(android.graphics.Color.BLACK)
+                            cachedScaledBitmap?.let { b ->
+                                // Centering logic
+                                val left = (targetW - b.width) / 2f
+                                val top = (targetH - b.height) / 2f
+                                canvas.drawBitmap(b, left, top, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+                            }
+                            surface.unlockCanvasAndPost(canvas)
+                        }
+                    } catch (e: Exception) {
+                        log(tag, "Canvas Draw Error: ${e.message}")
+                    }
+                    mainHandler.postDelayed(this, 100) // 10 FPS
+                }
+            }
+            mainHandler.post(imageLoopRunnable!!)
+            log(tag, "Image Loop STARTED (${rawBitmap.width}x${rawBitmap.height})")
+        } catch (e: Exception) {
+            log(tag, "Image Setup Failed: ${e.message}")
         }
     }
 
@@ -82,13 +181,14 @@ class MediaEngine(private val logAction: (String) -> Unit) {
         tag: String,
         isMirrored: Boolean = false,
         rotationAngle: Int = 0,
-        onPrepared: ((ExoPlayer) -> Unit)? = null
+        onPrepared: ((ExoPlayer?) -> Unit)? = null
     ) {
         mainHandler.post {
             if (isBusy) return@post
             
             // Internal sync: stop before play if called on main thread
             isBusy = true
+            stopImageLoop()
             try {
                 player?.apply {
                     stop()
@@ -98,9 +198,28 @@ class MediaEngine(private val logAction: (String) -> Unit) {
             } catch (_: Throwable) {}
 
             try {
-                val exoPlayer = ExoPlayer.Builder(context.applicationContext)
-                    .build()
+                val uri = path.toUri()
+                val extension = MimeTypeMap.getFileExtensionFromUrl(path).ifEmpty {
+                    path.substringAfterLast('.', "")
+                }
+                val mimeType = context.contentResolver.getType(uri) ?: 
+                    MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.lowercase())
 
+                isImageInternal = mimeType?.startsWith("image/") == true
+                if (!isImageInternal && (extension.equals("jpg", true) || extension.equals("jpeg", true) || extension.equals("png", true))) {
+                    isImageInternal = true
+                }
+
+                log(tag, "Loading media: $path | Detected MIME: $mimeType | IsImage: $isImageInternal")
+
+                if (isImageInternal) {
+                    isBusy = false
+                    startImageLoop(context, uri, surface, isMirrored, rotationAngle, tag)
+                    onPrepared?.invoke(null)
+                    return@post
+                }
+
+                val exoPlayer = ExoPlayer.Builder(context.applicationContext).build()
                 player = exoPlayer
 
                 // Setup Effects: Mirroring and Rotation
@@ -117,48 +236,38 @@ class MediaEngine(private val logAction: (String) -> Unit) {
                 if (effects.isNotEmpty()) {
                     exoPlayer.setVideoEffects(effects)
                 }
-
-                val mediaItem = MediaItem.fromUri(path.toUri())
-                exoPlayer.setMediaItem(mediaItem)
+                
+                exoPlayer.setMediaItem(MediaItem.fromUri(uri))
                 exoPlayer.setVideoSurface(surface)
                 exoPlayer.repeatMode = Player.REPEAT_MODE_ONE
 
                 exoPlayer.addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
                         isPlayingInternal = isPlaying
-                        if (isPlaying) {
-                            startPositionPolling()
-                        } else {
-                            stopPositionPolling()
-                        }
+                        if (isPlaying) startPositionPolling() else stopPositionPolling()
                     }
 
                     override fun onPlaybackStateChanged(playbackState: Int) {
-                        when (playbackState) {
-                            Player.STATE_READY -> {
-                                if (!isBusy) return
-                                isBusy = false
-                                
-                                videoWidth = exoPlayer.videoSize.width
-                                videoHeight = exoPlayer.videoSize.height
+                        if (playbackState == Player.STATE_READY) {
+                            if (!isBusy) return
+                            isBusy = false
+                            
+                            videoWidth = exoPlayer.videoSize.width
+                            videoHeight = exoPlayer.videoSize.height
 
-                                try {
-                                    exoPlayer.play()
-                                    log(tag, "Player ACTIVE (${videoWidth}x${videoHeight}) - Effects: M=$isMirrored R=$rotationAngle")
-                                    onPrepared?.invoke(exoPlayer)
-                                } catch (e: Throwable) {
-                                    log(tag, "Start failed: ${e.message}")
-                                }
+                            try {
+                                exoPlayer.play()
+                                log(tag, "Player ACTIVE (${videoWidth}x${videoHeight}) - Image: false")
+                                onPrepared?.invoke(exoPlayer)
+                            } catch (e: Throwable) {
+                                log(tag, "Start failed: ${e.message}")
                             }
-                            else -> {}
                         }
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
                         isBusy = false
                         log(tag, "Player Error: ${error.errorCodeName} | ${error.message}")
-                        
-                        // Error handling on main thread
                         player?.release()
                         player = null
                         isPlayingInternal = false

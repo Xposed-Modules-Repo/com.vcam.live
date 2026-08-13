@@ -91,6 +91,7 @@ public class ImageReaderHook {
                             readerTracker.put(reader, new ReaderMetadata(w, h, format, fmtName, surfaceId));
                             module.registerImageReaderSurface(reader.getSurface(), format, w, h);
                             module.logHook("[+] ImageReader.newInstance: " + w + "x" + h + " " + fmtName + " | ID: " + surfaceId);
+                            module.showToast(w + "x" + h + " (" + fmtName + ")");
                         }
                         return result;
                     });
