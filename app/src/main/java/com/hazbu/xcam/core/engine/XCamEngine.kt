@@ -6,10 +6,12 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Surface
 import android.view.SurfaceHolder
+import androidx.media3.common.util.UnstableApi
 import com.hazbu.xcam.core.settings.SettingsManager
 import com.hazbu.xcam.core.surface.SurfaceManager
 import com.hazbu.xcam.core.surface.SurfaceProvider
 
+@UnstableApi
 class XCamEngine(
     private val contextProvider: () -> Context?,
     private val settingsProvider: () -> SettingsManager,
@@ -18,7 +20,6 @@ class XCamEngine(
     private val surfaceProvider: SurfaceProvider,
     private val logAction: (String) -> Unit,
 ) {
-    private var xRenderer: XCamRenderer? = null
     private val uiHandler = Handler(Looper.getMainLooper())
     
     private var lastST: SurfaceTexture? = null
@@ -41,21 +42,6 @@ class XCamEngine(
         lastInjectedSurfaceId = -1L
     }
 
-    fun handlePreview(width: Int, height: Int): Boolean {
-        val path = settingsProvider().mediaPath ?: return false
-        val context = contextProvider() ?: return false
-        val settings = settingsProvider()
-
-        return try {
-            val renderer = xRenderer.takeIf { it?.currentPath == path } 
-                ?: XCamRenderer(context, path, settings.isMirrored, settings.rotationAngle, mediaEngine, logAction).also { 
-                    xRenderer?.release()
-                    xRenderer = it 
-                }
-            renderer.draw(width, height)
-        } catch (_: Throwable) { false }
-    }
-
     fun handleCamera1Preview(st: SurfaceTexture) {
         val surface = Surface(st)
         if (!surfaceManager.isPreviewSurface(surface)) {
@@ -68,9 +54,10 @@ class XCamEngine(
 
         val path = settingsProvider().mediaPath ?: return
         val context = contextProvider() ?: return
+        val settings = settingsProvider()
 
         logPipe("Legacy Hook: Injecting to SurfaceTexture")
-        mediaEngine.play(context, path, surface, "Legacy")
+        mediaEngine.play(context, path, surface, "Legacy", settings.isMirrored, settings.rotationAngle)
     }
 
     fun handleModernPreview(surface: Surface) {
@@ -99,6 +86,7 @@ class XCamEngine(
             
             val id = com.hazbu.xcam.utils.SystemUtils.getSurfaceId(surface)
             val currentGen = surfaceManager.sessionGeneration
+            val settings = settingsProvider()
 
             if (id == lastInjectedSurfaceId && mediaEngine.isPlaying && currentGen == lastInjectedGen) return
 
@@ -107,7 +95,7 @@ class XCamEngine(
             
             lastInjectedGen = currentGen
             lastInjectedSurfaceId = id
-            mediaEngine.play(context, path, surface, "Engine")
+            mediaEngine.play(context, path, surface, "Engine", settings.isMirrored, settings.rotationAngle)
         }
     }
 

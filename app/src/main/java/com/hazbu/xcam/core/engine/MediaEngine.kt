@@ -3,14 +3,18 @@ package com.hazbu.xcam.core.engine
 import android.content.Context
 import android.view.Surface
 import androidx.core.net.toUri
+import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.ScaleAndRotateTransformation
 import androidx.media3.exoplayer.ExoPlayer
 
 /**
  * Handles Media3/ExoPlayer lifecycle and state management for video injection.
  */
+@UnstableApi
 class MediaEngine(private val logAction: (String) -> Unit) {
 
     private var player: ExoPlayer? = null
@@ -56,6 +60,8 @@ class MediaEngine(private val logAction: (String) -> Unit) {
         path: String,
         surface: Surface,
         tag: String,
+        isMirrored: Boolean = false,
+        rotationAngle: Int = 0,
         onPrepared: ((ExoPlayer) -> Unit)? = null
     ) {
         if (isBusy) return
@@ -70,69 +76,51 @@ class MediaEngine(private val logAction: (String) -> Unit) {
 
             player = exoPlayer
 
+            // Setup Effects: Mirroring and Rotation
+            val effects = mutableListOf<Effect>()
+            if (isMirrored || rotationAngle != 0) {
+                val scaleX = if (isMirrored) -1f else 1f
+                effects.add(
+                    ScaleAndRotateTransformation.Builder()
+                        .setScale(scaleX, 1f)
+                        .setRotationDegrees(rotationAngle.toFloat())
+                        .build()
+                )
+            }
+            if (effects.isNotEmpty()) {
+                exoPlayer.setVideoEffects(effects)
+            }
+
             val mediaItem = MediaItem.fromUri(path.toUri())
-
             exoPlayer.setMediaItem(mediaItem)
-
-            // Penting untuk pipeline xCam:
-            // langsung render video ke Surface yang diberikan.
             exoPlayer.setVideoSurface(surface)
-
             exoPlayer.repeatMode = Player.REPEAT_MODE_ONE
 
             exoPlayer.addListener(object : Player.Listener {
-
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     when (playbackState) {
-
                         Player.STATE_READY -> {
                             if (!isBusy) return
-
                             isBusy = false
-
+                            
                             videoWidth = exoPlayer.videoSize.width
                             videoHeight = exoPlayer.videoSize.height
 
                             try {
                                 exoPlayer.play()
-
-                                log(
-                                    tag,
-                                    "Player ACTIVE (${videoWidth}x${videoHeight})"
-                                )
-
+                                log(tag, "Player ACTIVE (${videoWidth}x${videoHeight}) - Effects: M=$isMirrored R=$rotationAngle")
                                 onPrepared?.invoke(exoPlayer)
-
                             } catch (e: Throwable) {
-                                log(
-                                    tag,
-                                    "Start failed: ${e.message}"
-                                )
+                                log(tag, "Start failed: ${e.message}")
                             }
                         }
-
-                        Player.STATE_BUFFERING -> {
-                            log(tag, "Player buffering")
-                        }
-
-                        Player.STATE_ENDED -> {
-                            log(tag, "Player ended")
-                        }
-
-                        Player.STATE_IDLE -> {
-                            // Ignore
-                        }
+                        else -> {}
                     }
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
                     isBusy = false
-
-                    log(
-                        tag,
-                        "Player Error: ${error.errorCodeName} | ${error.message}"
-                    )
-
+                    log(tag, "Player Error: ${error.errorCodeName} | ${error.message}")
                     stop()
                 }
             })
@@ -141,17 +129,8 @@ class MediaEngine(private val logAction: (String) -> Unit) {
 
         } catch (e: Throwable) {
             isBusy = false
-
-            log(
-                tag,
-                "Prepare failed: ${e.message}"
-            )
-
-            try {
-                player?.release()
-            } catch (_: Throwable) {
-            }
-
+            log(tag, "Prepare failed: ${e.message}")
+            try { player?.release() } catch (_: Throwable) {}
             player = null
         }
     }

@@ -5,6 +5,7 @@ import android.graphics.SurfaceTexture
 import android.os.Build
 import android.view.Surface
 import android.view.SurfaceHolder
+import androidx.media3.common.util.UnstableApi
 import com.hazbu.xcam.core.capture.CaptureManager
 import com.hazbu.xcam.core.capture.YuvFrameProcessor
 import com.hazbu.xcam.core.engine.MediaEngine
@@ -18,6 +19,7 @@ import com.hazbu.xcam.utils.UIUtils
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
 
+@UnstableApi
 class XCamModule : XposedModule() {
     private var isInitialized = false
     private var mContext: Context? = null
@@ -87,7 +89,6 @@ class XCamModule : XposedModule() {
 
     // Engine Delegation
     fun stopCamera1Engine() = engine.stop()
-    fun handlePreview(w: Int, h: Int) = engine.handlePreview(w, h)
     fun handleCamera1Preview(st: SurfaceTexture) = engine.handleCamera1Preview(st)
     fun handleModernPreview(s: Surface) = engine.handleModernPreview(s)
     fun handleSurfaceViewPreview(h: SurfaceHolder) = engine.handleSurfaceViewPreview(h)
