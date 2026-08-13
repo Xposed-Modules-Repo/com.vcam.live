@@ -46,18 +46,6 @@ public class CameraHook {
 
     private void hookLegacyMethod1(XposedModuleInterface.PackageReadyParam param) {
         try {
-            @SuppressLint("PrivateApi") Class<?> rendererClass = param.getClassLoader().loadClass("android.hardware.camera2.legacy.SurfaceTextureRenderer");
-            Method drawFrame = rendererClass.getDeclaredMethod("drawFrame", SurfaceTexture.class, int.class, int.class, int.class);
-            module.hook(drawFrame).intercept(chain -> {
-                int width = (int) chain.getArgs().get(1);
-                int height = (int) chain.getArgs().get(2);
-                if (module.handlePreview(width, height)) return null;
-                return chain.proceed();
-            });
-            module.logHook("[+] Hooked: SurfaceTextureRenderer#drawFrame");
-        } catch (Throwable ignored) {}
-
-        try {
             @SuppressLint("PrivateApi") Class<?> legacyDeviceClass = param.getClassLoader().loadClass("android.hardware.camera2.legacy.LegacyCameraDevice");
             for (Method method : legacyDeviceClass.getDeclaredMethods()) {
                 if (method.getName().equals("produceFrame") && method.getParameterTypes().length == 5) {

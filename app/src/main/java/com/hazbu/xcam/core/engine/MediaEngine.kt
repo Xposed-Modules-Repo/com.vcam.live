@@ -1,6 +1,8 @@
 package com.hazbu.xcam.core.engine
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.view.Surface
 import androidx.core.net.toUri
 import androidx.media3.common.Effect
@@ -17,41 +19,59 @@ import androidx.media3.exoplayer.ExoPlayer
 @UnstableApi
 class MediaEngine(private val logAction: (String) -> Unit) {
 
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var player: ExoPlayer? = null
+    
+    @Volatile
     private var isBusy = false
 
+    @Volatile
+    private var isPlayingInternal = false
+
+    @Volatile
+    private var currentPositionInternal = 0L
+
+    @Volatile
     var videoWidth = 0
         private set
 
+    @Volatile
     var videoHeight = 0
         private set
 
     val isPlaying: Boolean
-        get() = player?.isPlaying == true
+        get() = isPlayingInternal
 
     val currentPosition: Long
-        get() = player?.currentPosition ?: 0L
+        get() = if (Looper.myLooper() == Looper.getMainLooper()) {
+            player?.currentPosition ?: 0L
+        } else {
+            currentPositionInternal
+        }
 
     private fun log(tag: String, msg: String) {
         logAction("[$tag] $msg")
     }
 
     fun stop() {
-        isBusy = true
-
-        try {
-            player?.apply {
-                stop()
-                clearVideoSurface()
-                release()
+        mainHandler.post {
+            isBusy = true
+            try {
+                player?.apply {
+                    stop()
+                    clearVideoSurface()
+                    release()
+                }
+            } catch (e: Throwable) {
+                log("MEDIA-ENGINE", "Stop failed: ${e.message}")
+            } finally {
+                player = null
+                isPlayingInternal = false
+                currentPositionInternal = 0L
+                videoWidth = 0
+                videoHeight = 0
+                isBusy = false
             }
-        } catch (e: Throwable) {
-            log("MEDIA-ENGINE", "Stop failed: ${e.message}")
-        } finally {
-            player = null
-            videoWidth = 0
-            videoHeight = 0
-            isBusy = false
         }
     }
 
@@ -64,74 +84,96 @@ class MediaEngine(private val logAction: (String) -> Unit) {
         rotationAngle: Int = 0,
         onPrepared: ((ExoPlayer) -> Unit)? = null
     ) {
-        if (isBusy) return
-
-        stop()
-
-        isBusy = true
-
-        try {
-            val exoPlayer = ExoPlayer.Builder(context.applicationContext)
-                .build()
-
-            player = exoPlayer
-
-            // Setup Effects: Mirroring and Rotation
-            val effects = mutableListOf<Effect>()
-            if (isMirrored || rotationAngle != 0) {
-                val scaleX = if (isMirrored) -1f else 1f
-                effects.add(
-                    ScaleAndRotateTransformation.Builder()
-                        .setScale(scaleX, 1f)
-                        .setRotationDegrees(rotationAngle.toFloat())
-                        .build()
-                )
-            }
-            if (effects.isNotEmpty()) {
-                exoPlayer.setVideoEffects(effects)
-            }
-
-            val mediaItem = MediaItem.fromUri(path.toUri())
-            exoPlayer.setMediaItem(mediaItem)
-            exoPlayer.setVideoSurface(surface)
-            exoPlayer.repeatMode = Player.REPEAT_MODE_ONE
-
-            exoPlayer.addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    when (playbackState) {
-                        Player.STATE_READY -> {
-                            if (!isBusy) return
-                            isBusy = false
-                            
-                            videoWidth = exoPlayer.videoSize.width
-                            videoHeight = exoPlayer.videoSize.height
-
-                            try {
-                                exoPlayer.play()
-                                log(tag, "Player ACTIVE (${videoWidth}x${videoHeight}) - Effects: M=$isMirrored R=$rotationAngle")
-                                onPrepared?.invoke(exoPlayer)
-                            } catch (e: Throwable) {
-                                log(tag, "Start failed: ${e.message}")
-                            }
-                        }
-                        else -> {}
-                    }
-                }
-
-                override fun onPlayerError(error: PlaybackException) {
-                    isBusy = false
-                    log(tag, "Player Error: ${error.errorCodeName} | ${error.message}")
+        mainHandler.post {
+            if (isBusy) return@post
+            
+            // Internal sync: stop before play if called on main thread
+            isBusy = true
+            try {
+                player?.apply {
                     stop()
+                    clearVideoSurface()
+                    release()
                 }
-            })
+            } catch (_: Throwable) {}
 
-            exoPlayer.prepare()
+            try {
+                val exoPlayer = ExoPlayer.Builder(context.applicationContext)
+                    .build()
 
-        } catch (e: Throwable) {
-            isBusy = false
-            log(tag, "Prepare failed: ${e.message}")
-            try { player?.release() } catch (_: Throwable) {}
-            player = null
+                player = exoPlayer
+
+                // Setup Effects: Mirroring and Rotation
+                val effects = mutableListOf<Effect>()
+                if (isMirrored || rotationAngle != 0) {
+                    val scaleX = if (isMirrored) -1f else 1f
+                    effects.add(
+                        ScaleAndRotateTransformation.Builder()
+                            .setScale(scaleX, 1f)
+                            .setRotationDegrees(rotationAngle.toFloat())
+                            .build()
+                    )
+                }
+                if (effects.isNotEmpty()) {
+                    exoPlayer.setVideoEffects(effects)
+                }
+
+                val mediaItem = MediaItem.fromUri(path.toUri())
+                exoPlayer.setMediaItem(mediaItem)
+                exoPlayer.setVideoSurface(surface)
+                exoPlayer.repeatMode = Player.REPEAT_MODE_ONE
+
+                exoPlayer.addListener(object : Player.Listener {
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        isPlayingInternal = isPlaying
+                        if (isPlaying) {
+                            startPositionPolling()
+                        } else {
+                            stopPositionPolling()
+                        }
+                    }
+
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        when (playbackState) {
+                            Player.STATE_READY -> {
+                                if (!isBusy) return
+                                isBusy = false
+                                
+                                videoWidth = exoPlayer.videoSize.width
+                                videoHeight = exoPlayer.videoSize.height
+
+                                try {
+                                    exoPlayer.play()
+                                    log(tag, "Player ACTIVE (${videoWidth}x${videoHeight}) - Effects: M=$isMirrored R=$rotationAngle")
+                                    onPrepared?.invoke(exoPlayer)
+                                } catch (e: Throwable) {
+                                    log(tag, "Start failed: ${e.message}")
+                                }
+                            }
+                            else -> {}
+                        }
+                    }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        isBusy = false
+                        log(tag, "Player Error: ${error.errorCodeName} | ${error.message}")
+                        
+                        // Error handling on main thread
+                        player?.release()
+                        player = null
+                        isPlayingInternal = false
+                    }
+                })
+
+                exoPlayer.prepare()
+
+            } catch (e: Throwable) {
+                isBusy = false
+                log(tag, "Prepare failed: ${e.message}")
+                try { player?.release() } catch (_: Throwable) {}
+                player = null
+                isPlayingInternal = false
+            }
         }
     }
 
@@ -139,6 +181,28 @@ class MediaEngine(private val logAction: (String) -> Unit) {
      * Optional helper if Surface changes while the player is alive.
      */
     fun setSurface(surface: Surface?) {
-        player?.setVideoSurface(surface)
+        mainHandler.post {
+            player?.setVideoSurface(surface)
+        }
+    }
+
+    private val positionPoller = object : Runnable {
+        override fun run() {
+            player?.let {
+                currentPositionInternal = it.currentPosition
+                if (isPlayingInternal) {
+                    mainHandler.postDelayed(this, 500)
+                }
+            }
+        }
+    }
+
+    private fun startPositionPolling() {
+        mainHandler.removeCallbacks(positionPoller)
+        mainHandler.post(positionPoller)
+    }
+
+    private fun stopPositionPolling() {
+        mainHandler.removeCallbacks(positionPoller)
     }
 }
