@@ -1,3 +1,6 @@
 # vcam module metadata
+description=vcam: Linux desktop view pushed over SRT and rendered directly onto the phone camera preview Surface for live-streaming apps
+version=0.1.0
+versionCode=1
 minApiVersion=102
 targetApiVersion=102

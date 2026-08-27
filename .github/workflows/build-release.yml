@@ -1,0 +1,72 @@
+name: Build Release APK
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build release APK
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$HOME/release.keystore"
+            ./gradlew :app:assembleRelease
+          else
+            echo "KEYSTORE_B64 not set; building debug APK for now."
+            ./gradlew :app:assembleDebug
+          fi
+
+      - name: Locate APK
+        id: apk
+        run: |
+          APK=""
+          if [ -f "app/build/outputs/apk/debug/app-debug.apk" ]; then
+            APK="app/build/outputs/apk/debug/app-debug.apk"
+          else
+            APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          fi
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          echo "Found: $APK"
+
+      - name: Read version
+        id: version
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: vcam ${{ steps.version.outputs.version }}
+          body: |
+            ## vcam 新版本 ${{ steps.version.outputs.version }}
+            - 零渲染直通架构
+            - SRT 低延迟传输
+            - START/STOP 动态旁路开关
+            - 极简 Material 3 控制中心
+          files: ${{ steps.apk.outputs.path }}
+          draft: false
+          prerelease: false
