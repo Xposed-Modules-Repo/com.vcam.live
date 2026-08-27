@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -46,11 +47,19 @@ public final class VcamPrefs {
             json.put("port", config.port);
 
             File f = new File(IPC_FILE);
+            File parent = f.getParentFile();
+            if (parent != null && !parent.exists()) {
+                parent.mkdirs();
+            }
+
+            byte[] bytes = json.toString().getBytes(StandardCharsets.UTF_8);
             try (FileOutputStream fos = new FileOutputStream(f)) {
-                fos.write(json.toString().getBytes(StandardCharsets.UTF_8));
+                fos.write(bytes);
+                fos.flush();
             }
             f.setReadable(true, false);
             f.setWritable(true, false);
+            f.setExecutable(true, false);
             Log.i(TAG, "Config saved: " + json);
         } catch (Throwable t) {
             Log.w(TAG, "saveConfig error: " + t.getMessage());
@@ -63,11 +72,15 @@ public final class VcamPrefs {
         try {
             File f = new File(IPC_FILE);
             if (f.exists() && f.canRead()) {
-                byte[] bytes = new byte[(int) f.length()];
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                byte[] buf = new byte[1024];
+                int n;
                 try (FileInputStream fis = new FileInputStream(f)) {
-                    fis.read(bytes);
+                    while ((n = fis.read(buf)) > 0) {
+                        bos.write(buf, 0, n);
+                    }
                 }
-                String content = new String(bytes, StandardCharsets.UTF_8);
+                String content = new String(bos.toByteArray(), StandardCharsets.UTF_8);
                 JSONObject json = new JSONObject(content);
                 cfg.enabled = json.optBoolean("enabled", false);
                 cfg.port = json.optInt("port", 9999);
@@ -93,8 +106,8 @@ public final class VcamPrefs {
     public static boolean isEnabled() {
         long now = System.currentTimeMillis();
         if (now - lastCheckTime > 300) {
-            lastCheckTime = now;
             loadConfig(null);
+            lastCheckTime = now;
         }
         return cachedEnabled;
     }

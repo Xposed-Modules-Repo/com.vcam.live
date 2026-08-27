@@ -21,7 +21,14 @@ public final class VcamXposed extends XposedModule {
             detach();
             return;
         }
-        Log.i(TAG, "module loaded in process: " + param.getProcessName());
+
+        String processName = param.getProcessName();
+        if (processName != null && (processName.endsWith(":push") || processName.endsWith(":channel") || processName.contains("sandboxed"))) {
+            detach();
+            return;
+        }
+
+        Log.i(TAG, "module loaded in process: " + processName);
     }
 
     // 目标包准备完毕回调

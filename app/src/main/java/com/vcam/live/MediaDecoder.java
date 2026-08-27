@@ -9,7 +9,7 @@ import android.view.Surface;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-// 硬件解码器
+// 视频硬件解码器
 public final class MediaDecoder {
 
     private static final String TAG = "vcam::decoder";
@@ -97,8 +97,7 @@ public final class MediaDecoder {
 
     // 喂入视频数据
     public void feedNalu(byte[] data, int offset, int length, long ptsUs) {
-        final MediaCodec c = this.codec;
-        if (!isRunning.get() || c == null || length <= 0) {
+        if (!isRunning.get() || length <= 0) {
             return;
         }
 
@@ -106,6 +105,14 @@ public final class MediaDecoder {
         int currentOffset = offset;
 
         while (remaining > 0 && isRunning.get()) {
+            final MediaCodec c;
+            synchronized (this) {
+                c = this.codec;
+            }
+            if (c == null || !isRunning.get()) {
+                break;
+            }
+
             try {
                 int inputIndex = -1;
                 for (int retry = 0; retry < 3 && inputIndex < 0 && isRunning.get(); retry++) {
@@ -131,12 +138,15 @@ public final class MediaDecoder {
                 currentOffset += chunkSize;
                 remaining -= chunkSize;
             } catch (MediaCodec.CodecException ce) {
-                Log.e(TAG, "CodecException in feedNalu: " + ce.getMessage());
-                restartDecoder();
+                if (isRunning.get()) {
+                    Log.w(TAG, "CodecException in feedNalu: " + ce.getMessage());
+                    restartDecoder();
+                }
                 break;
             } catch (IllegalStateException ise) {
                 if (isRunning.get()) {
                     Log.w(TAG, "IllegalStateException in feedNalu: " + ise.getMessage());
+                    restartDecoder();
                 }
                 break;
             } catch (Throwable t) {
@@ -153,8 +163,13 @@ public final class MediaDecoder {
         long lastLog = System.currentTimeMillis();
 
         while (isRunning.get()) {
-            final MediaCodec c = this.codec;
-            if (c == null) break;
+            final MediaCodec c;
+            synchronized (this) {
+                c = this.codec;
+            }
+            if (c == null || !isRunning.get()) {
+                break;
+            }
 
             try {
                 int outIndex = c.dequeueOutputBuffer(info, 15000);
@@ -178,11 +193,15 @@ public final class MediaDecoder {
                 }
             } catch (MediaCodec.CodecException ce) {
                 if (isRunning.get()) {
-                    Log.e(TAG, "CodecException in renderLoop: " + ce.getMessage());
+                    Log.w(TAG, "CodecException in renderLoop: " + ce.getMessage());
                     restartDecoder();
                 }
                 break;
             } catch (IllegalStateException ise) {
+                if (isRunning.get()) {
+                    Log.w(TAG, "IllegalStateException in renderLoop: " + ise.getMessage());
+                    restartDecoder();
+                }
                 break;
             } catch (Throwable t) {
                 if (isRunning.get()) {
@@ -204,9 +223,13 @@ public final class MediaDecoder {
     // 停止解码器并释放资源
     public synchronized void stop() {
         isRunning.set(false);
-        if (outputThread != null) {
-            outputThread.interrupt();
-            outputThread = null;
+        Thread t = this.outputThread;
+        if (t != null) {
+            t.interrupt();
+            try {
+                t.join(300);
+            } catch (InterruptedException ignored) {}
+            this.outputThread = null;
         }
         if (codec != null) {
             try {

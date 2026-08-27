@@ -4,6 +4,8 @@ import android.annotation.SuppressLint;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
@@ -27,8 +29,8 @@ public final class CameraSurfaceHijack {
 
     private static final Set<Surface> sFakeSurfaces =
             Collections.synchronizedSet(Collections.newSetFromMap(new IdentityHashMap<>()));
-    private static SurfaceTexture sFakeTexture;
-    private static Surface sSharedFakeSurface;
+    private static HandlerThread sDrainThread;
+    private static Handler sDrainHandler;
 
     private CameraSurfaceHijack() {
     }
@@ -234,7 +236,7 @@ public final class CameraSurfaceHijack {
                 chosenReal = current;
             }
 
-            Surface fake = getOrCreateSharedFakeSurface();
+            Surface fake = createUniqueFakeSurface(i);
             replaceSurfaceDirect(cfg, fake);
         }
 
@@ -248,7 +250,6 @@ public final class CameraSurfaceHijack {
         if (surfaces == null || surfaces.isEmpty()) return;
 
         Surface chosenReal = null;
-        Surface fake = getOrCreateSharedFakeSurface();
 
         for (int i = 0; i < surfaces.size(); i++) {
             Surface s = surfaces.get(i);
@@ -258,7 +259,11 @@ public final class CameraSurfaceHijack {
             if (chosenReal == null) {
                 chosenReal = s;
             }
-            surfaces.set(i, fake);
+
+            Surface fake = createUniqueFakeSurface(i);
+            try {
+                surfaces.set(i, fake);
+            } catch (Throwable ignored) {}
         }
 
         if (chosenReal != null) {
@@ -325,16 +330,27 @@ public final class CameraSurfaceHijack {
         return null;
     }
 
-    private static synchronized Surface getOrCreateSharedFakeSurface() {
-        if (sSharedFakeSurface == null || !sSharedFakeSurface.isValid()) {
-            if (sFakeTexture != null) {
-                sFakeTexture.release();
-            }
-            sFakeTexture = new SurfaceTexture(1001);
-            sFakeTexture.setDefaultBufferSize(1920, 1080);
-            sSharedFakeSurface = new Surface(sFakeTexture);
-            sFakeSurfaces.add(sSharedFakeSurface);
+    // 确保假表面缓冲消费线程就绪
+    private static synchronized void ensureDrainThread() {
+        if (sDrainThread == null) {
+            sDrainThread = new HandlerThread("vcam-fake-drain");
+            sDrainThread.start();
+            sDrainHandler = new Handler(sDrainThread.getLooper());
         }
-        return sSharedFakeSurface;
+    }
+
+    // 创建具有自动消费机制的唯一假表面
+    private static synchronized Surface createUniqueFakeSurface(int index) {
+        ensureDrainThread();
+        SurfaceTexture st = new SurfaceTexture(1001 + index);
+        st.setDefaultBufferSize(1920, 1080);
+        st.setOnFrameAvailableListener(surfaceTexture -> {
+            try {
+                surfaceTexture.updateTexImage();
+            } catch (Throwable ignored) {}
+        }, sDrainHandler);
+        Surface s = new Surface(st);
+        sFakeSurfaces.add(s);
+        return s;
     }
 }

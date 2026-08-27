@@ -50,12 +50,20 @@ public final class RenderedStream {
         INSTANCE.videoDecoder.start(1920, 1080);
 
         INSTANCE.demuxer = new MpegTsDemuxer((naluData, offset, length, ptsUs) -> {
+            if (!VcamPrefs.isEnabled()) {
+                stop();
+                return;
+            }
             if (INSTANCE.videoDecoder != null) {
                 INSTANCE.videoDecoder.feedNalu(naluData, offset, length, ptsUs);
             }
         });
 
         INSTANCE.receiver = new SrtReceiver((buffer, offset, length) -> {
+            if (!VcamPrefs.isEnabled()) {
+                stop();
+                return;
+            }
             if (INSTANCE.demuxer != null) {
                 INSTANCE.demuxer.feed(buffer, offset, length);
             }
@@ -66,17 +74,17 @@ public final class RenderedStream {
     }
 
     // 停止并释放所有硬件与网络资源
-    public synchronized void stop() {
-        if (receiver != null) {
-            receiver.stop();
-            receiver = null;
+    public static synchronized void stop() {
+        if (INSTANCE.receiver != null) {
+            INSTANCE.receiver.stop();
+            INSTANCE.receiver = null;
         }
-        if (videoDecoder != null) {
-            videoDecoder.stop();
-            videoDecoder = null;
+        if (INSTANCE.videoDecoder != null) {
+            INSTANCE.videoDecoder.stop();
+            INSTANCE.videoDecoder = null;
         }
-        demuxer = null;
-        currentTarget = null;
+        INSTANCE.demuxer = null;
+        INSTANCE.currentTarget = null;
         Log.i(TAG, "Pipeline stopped and resources released");
     }
 }

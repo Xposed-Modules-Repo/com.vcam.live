@@ -3,7 +3,7 @@ package com.vcam.live;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
-import android.graphics.drawable.GradientDrawable;
+import android.content.res.ColorStateList;
 import android.net.ConnectivityManager;
 import android.net.LinkAddress;
 import android.net.LinkProperties;
@@ -11,7 +11,6 @@ import android.os.Bundle;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.ContextCompat;
 
 import com.google.android.material.color.DynamicColors;
 import com.google.android.material.color.MaterialColors;
@@ -60,9 +59,6 @@ public final class ControlActivity extends AppCompatActivity {
 
     // 更新界面状态
     private void updateUiState() {
-        GradientDrawable dot =
-                (GradientDrawable) ContextCompat.getDrawable(this, R.drawable.bg_status_dot);
-
         if (config.enabled) {
             binding.tvStatus.setText(R.string.status_running);
             binding.btnToggle.setText(R.string.action_stop);
@@ -71,10 +67,7 @@ public final class ControlActivity extends AppCompatActivity {
             int colorPrimary = MaterialColors.getColor(
                     binding.getRoot(),
                     com.google.android.material.R.attr.colorPrimary);
-            if (dot != null) {
-                dot.setColor(colorPrimary);
-                dot.invalidateSelf();
-            }
+            binding.statusDot.setBackgroundTintList(ColorStateList.valueOf(colorPrimary));
         } else {
             binding.tvStatus.setText(R.string.status_stopped);
             binding.btnToggle.setText(R.string.action_start);
@@ -83,10 +76,7 @@ public final class ControlActivity extends AppCompatActivity {
             int colorOutline = MaterialColors.getColor(
                     binding.getRoot(),
                     com.google.android.material.R.attr.colorOutline);
-            if (dot != null) {
-                dot.setColor(colorOutline);
-                dot.invalidateSelf();
-            }
+            binding.statusDot.setBackgroundTintList(ColorStateList.valueOf(colorOutline));
         }
     }
 
@@ -97,7 +87,7 @@ public final class ControlActivity extends AppCompatActivity {
             VcamPrefs.saveConfig(this, config);
 
             if (!config.enabled) {
-                RenderedStream.get().stop();
+                RenderedStream.stop();
             }
 
             updateUiState();

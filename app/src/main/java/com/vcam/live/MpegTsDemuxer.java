@@ -7,6 +7,7 @@ public final class MpegTsDemuxer {
 
     private static final int TS_PACKET_SIZE = 188;
     private static final byte SYNC_BYTE = 0x47;
+    private static final int MAX_PES_BUFFER_SIZE = 2 * 1024 * 1024;
 
     public interface VideoCallback {
         void onVideoPayload(byte[] naluData, int offset, int length, long ptsUs);
@@ -20,23 +21,54 @@ public final class MpegTsDemuxer {
     private final ByteArrayOutputStream videoPesBuffer = new ByteArrayOutputStream(64 * 1024);
     private long currentVideoPtsUs = -1;
 
+    private byte[] remainder = new byte[TS_PACKET_SIZE];
+    private int remainderLength = 0;
+
     public MpegTsDemuxer(VideoCallback videoCallback) {
         this.videoCallback = videoCallback;
     }
 
-    // 喂入传输流数据
-    public void feed(byte[] data, int offset, int length) {
-        int index = offset;
-        int end = offset + length;
+    // 喂入传输流数据并处理跨包分片拼接
+    public synchronized void feed(byte[] data, int offset, int length) {
+        if (data == null || length <= 0) {
+            return;
+        }
+
+        byte[] workBuffer;
+        int workOffset;
+        int workLength;
+
+        if (remainderLength > 0) {
+            int total = remainderLength + length;
+            workBuffer = new byte[total];
+            System.arraycopy(remainder, 0, workBuffer, 0, remainderLength);
+            System.arraycopy(data, offset, workBuffer, remainderLength, length);
+            workOffset = 0;
+            workLength = total;
+            remainderLength = 0;
+        } else {
+            workBuffer = data;
+            workOffset = offset;
+            workLength = length;
+        }
+
+        int index = workOffset;
+        int end = workOffset + workLength;
 
         while (index + TS_PACKET_SIZE <= end) {
-            if (data[index] != SYNC_BYTE) {
+            if (workBuffer[index] != SYNC_BYTE) {
                 index++;
                 continue;
             }
 
-            processPacket(data, index);
+            processPacket(workBuffer, index);
             index += TS_PACKET_SIZE;
+        }
+
+        int leftover = end - index;
+        if (leftover > 0 && leftover < TS_PACKET_SIZE) {
+            System.arraycopy(workBuffer, index, remainder, 0, leftover);
+            remainderLength = leftover;
         }
     }
 
@@ -79,7 +111,11 @@ public final class MpegTsDemuxer {
                 parseVideoPesHeader(pkt, payloadOffset, payloadLen);
             } else {
                 if (videoPesBuffer.size() > 0) {
-                    videoPesBuffer.write(pkt, payloadOffset, payloadLen);
+                    if (videoPesBuffer.size() + payloadLen > MAX_PES_BUFFER_SIZE) {
+                        videoPesBuffer.reset();
+                    } else {
+                        videoPesBuffer.write(pkt, payloadOffset, payloadLen);
+                    }
                 }
             }
         }
@@ -95,7 +131,7 @@ public final class MpegTsDemuxer {
         if (len < 8) return;
         int sectionLen = ((pkt[offset + 1] & 0x0F) << 8) | (pkt[offset + 2] & 0xFF);
         int pos = offset + 8;
-        int end = offset + 3 + sectionLen - 4;
+        int end = Math.min(offset + len, offset + 3 + sectionLen - 4);
 
         while (pos + 4 <= end) {
             int programNum = ((pkt[pos] & 0xFF) << 8) | (pkt[pos + 1] & 0xFF);
@@ -120,7 +156,7 @@ public final class MpegTsDemuxer {
         int programInfoLen = ((pkt[offset + 10] & 0x0F) << 8) | (pkt[offset + 11] & 0xFF);
 
         int pos = offset + 12 + programInfoLen;
-        int end = offset + 3 + sectionLen - 4;
+        int end = Math.min(offset + len, offset + 3 + sectionLen - 4);
 
         while (pos + 5 <= end) {
             int streamType = pkt[pos] & 0xFF;
@@ -148,6 +184,10 @@ public final class MpegTsDemuxer {
         int flags2 = pkt[offset + 7] & 0xFF;
         int pesHeaderDataLen = pkt[offset + 8] & 0xFF;
         int ptsDtsFlags = (flags2 >> 6) & 0x03;
+
+        if (len < 9 + pesHeaderDataLen) {
+            return;
+        }
 
         currentVideoPtsUs = -1;
         int dataOffset = offset + 9 + pesHeaderDataLen;

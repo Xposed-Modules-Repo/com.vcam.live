@@ -23,7 +23,8 @@ public final class SrtReceiver {
     private final StreamCallback callback;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private Thread serverThread;
-    private SrtSocket serverSocket;
+    private volatile SrtSocket serverSocket;
+    private volatile SrtSocket currentClientSocket;
 
     public SrtReceiver(StreamCallback callback) {
         this.callback = callback;
@@ -62,6 +63,7 @@ public final class SrtReceiver {
                     Pair<SrtSocket, InetSocketAddress> acceptRes = serverSocket.accept();
                     SrtSocket client = acceptRes.first;
                     InetSocketAddress peer = acceptRes.second;
+                    currentClientSocket = client;
                     Log.i(TAG, "Sender connected from: " + peer);
 
                     try (client) {
@@ -74,6 +76,8 @@ public final class SrtReceiver {
                         }
                     } catch (Throwable e) {
                         Log.i(TAG, "Sender disconnected: " + e.getMessage());
+                    } finally {
+                        currentClientSocket = null;
                     }
                 }
             } catch (Throwable t) {
@@ -96,13 +100,23 @@ public final class SrtReceiver {
     // 停止接收器并关闭套接字
     public synchronized void stop() {
         isRunning.set(false);
-        if (serverSocket != null) {
-            try { serverSocket.close(); } catch (Throwable ignored) {}
-            serverSocket = null;
+        SrtSocket client = this.currentClientSocket;
+        if (client != null) {
+            try { client.close(); } catch (Throwable ignored) {}
+            this.currentClientSocket = null;
         }
-        if (serverThread != null) {
-            serverThread.interrupt();
-            serverThread = null;
+        SrtSocket server = this.serverSocket;
+        if (server != null) {
+            try { server.close(); } catch (Throwable ignored) {}
+            this.serverSocket = null;
+        }
+        Thread t = this.serverThread;
+        if (t != null) {
+            t.interrupt();
+            try {
+                t.join(300);
+            } catch (InterruptedException ignored) {}
+            this.serverThread = null;
         }
     }
 }
