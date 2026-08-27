@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">vcam</string>
+    <string name="module_desc">局域网 SRT 视频流硬件直通相机预览</string>
+    <string name="status_running">已启动</string>
+    <string name="status_stopped">已停止</string>
+    <string name="action_start">START</string>
+    <string name="action_stop">STOP</string>
+    <string name="stream_url_label">推流地址</string>
+    <string name="action_copy">复制地址</string>
+    <string name="copied_toast">推流地址已复制到剪贴板</string>
+</resources>
