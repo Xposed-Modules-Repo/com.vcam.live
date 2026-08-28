@@ -10,8 +10,8 @@ android {
         applicationId = "com.vcam.live"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 11
+        versionName = "1.1.0"
     }
 
     signingConfigs {
@@ -49,6 +49,46 @@ android {
         buildConfig = true
         viewBinding = true
     }
+
+    lint {
+        abortOnError = true
+        warningsAsErrors = true
+        checkReleaseBuilds = true
+        checkDependencies = true
+
+        // 启用死代码、冗余代码与无用资源检测
+        enable += setOf(
+            "UnusedResources",
+            "UnusedIds",
+            "UnusedNamespace",
+            "ObsoleteSdkInt",
+            "StringFormatMatches",
+            "VectorRaster"
+        )
+
+        // 遇到严重问题直接作为错误中断
+        error += setOf(
+            "UnusedResources",
+            "UnusedIds",
+            "ObsoleteSdkInt",
+            "UnusedNamespace"
+        )
+
+        lintConfig = file("lint.xml")
+        htmlReport = true
+        xmlReport = true
+        textReport = true
+    }
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.compilerArgs.addAll(
+        listOf(
+            "-Xlint:all",
+            "-Xlint:-processing",
+            "-Xlint:-serial"
+        )
+    )
 }
 
 dependencies {

@@ -23,7 +23,7 @@ public final class VcamXposed extends XposedModule {
         }
 
         String processName = param.getProcessName();
-        if (processName != null && (processName.endsWith(":push") || processName.endsWith(":channel") || processName.contains("sandboxed"))) {
+        if (processName != null && (processName.endsWith(":push") || processName.endsWith(":channel") || processName.contains("sandboxed") || processName.contains("isolated"))) {
             detach();
             return;
         }

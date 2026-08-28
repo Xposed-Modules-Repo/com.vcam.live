@@ -1,13 +1,16 @@
 package com.vcam.live;
 
 import android.annotation.SuppressLint;
+import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
+import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
+import android.media.Image;
+import android.media.ImageReader;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
-import android.util.Size;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 
@@ -17,18 +20,27 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModuleInterface;
 
 // 通用相机预览劫持与直通注入引擎
+@SuppressLint({"DiscouragedApi", "PrivateApi", "NewApi"})
 public final class CameraSurfaceHijack {
 
     private static final String TAG = "vcam::cam-hijack";
 
-    private static final Set<Surface> sFakeSurfaces =
+    // 记录由本模块创建的无头安全消费表面
+    private static final Set<Surface> sDrainSurfaces =
             Collections.synchronizedSet(Collections.newSetFromMap(new IdentityHashMap<>()));
+    // 真实应用目标表面 -> 底层相机消费表面的映射 (用于 CaptureRequest 自动重定向)
+    private static final Map<Surface, Surface> sRealToDrainMap =
+            Collections.synchronizedMap(new IdentityHashMap<>());
+    // 持有 ImageReader 引用，防止被 GC 释放
+    private static final List<ImageReader> sActiveReaders = Collections.synchronizedList(new ArrayList<>());
+
     private static HandlerThread sDrainThread;
     private static Handler sDrainHandler;
 
@@ -42,65 +54,12 @@ public final class CameraSurfaceHijack {
 
     @SuppressLint("DiscouragedApi")
     public static void install(XposedInterface xposed, ClassLoader cl) {
-        hookCameraResolutionBoost(xposed, cl);
         hookCamera2(xposed, cl);
+        hookCaptureRequest(xposed, cl);
         hookCamera1(xposed, cl);
     }
 
-    // 提升相机物理分辨率
-    private static void hookCameraResolutionBoost(XposedInterface xposed, ClassLoader cl) {
-        try {
-            Method setBufferSize = SurfaceTexture.class.getDeclaredMethod("setDefaultBufferSize", int.class, int.class);
-            setBufferSize.setAccessible(true);
-            xposed.hook(setBufferSize)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        if (!VcamPrefs.isEnabled()) {
-                            return chain.proceed();
-                        }
-                        int w = (int) chain.getArg(0);
-                        int h = (int) chain.getArg(1);
-                        if (w < 1920 && h < 1920 && w > 0 && h > 0) {
-                            int targetW = (w >= h) ? 1920 : 1080;
-                            int targetH = (w >= h) ? 1080 : 1920;
-                            Log.i(TAG, "Boosting SurfaceTexture buffer: " + w + "x" + h + " -> " + targetW + "x" + targetH);
-                            return chain.proceed(new Object[]{ targetW, targetH });
-                        }
-                        return chain.proceed();
-                    });
-            Log.i(TAG, "Hooked SurfaceTexture.setDefaultBufferSize");
-        } catch (Throwable t) {
-            Log.w(TAG, "setDefaultBufferSize hook failed: " + t.getMessage());
-        }
-
-        try {
-            Class<?> mapClass = Class.forName("android.hardware.camera2.params.StreamConfigurationMap", false, cl);
-            for (Method m : mapClass.getDeclaredMethods()) {
-                if (m.getName().equals("getOutputSizes")) {
-                    Class<?>[] params = m.getParameterTypes();
-                    if (params.length == 1) {
-                        m.setAccessible(true);
-                        xposed.hook(m)
-                                .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                                .intercept(chain -> {
-                                    Object result = chain.proceed();
-                                    if (!VcamPrefs.isEnabled()) {
-                                        return result;
-                                    }
-                                    if (result instanceof Size[] sizes && sizes.length > 0) {
-                                        List<Size> list = new ArrayList<>(List.of(sizes));
-                                        list.sort((s1, s2) -> Integer.compare(s2.getWidth() * s2.getHeight(), s1.getWidth() * s1.getHeight()));
-                                        return list.toArray(new Size[0]);
-                                    }
-                                    return result;
-                                });
-                    }
-                }
-            }
-        } catch (Throwable ignored) {}
-    }
-
-    // 拦截 Camera2 会话创建
+    // 拦截 Camera2 会话创建 (支持 SessionConfiguration 与 传统 List 模式)
     private static void hookCamera2(XposedInterface xposed, ClassLoader cl) {
         try {
             Class<?> deviceImpl = Class.forName("android.hardware.camera2.impl.CameraDeviceImpl", false, cl);
@@ -128,7 +87,7 @@ public final class CameraSurfaceHijack {
                                 }
                                 return chain.proceed();
                             });
-                    Log.i(TAG, "Hooked Camera2 SessionConfiguration: " + m);
+                    Log.i(TAG, "Hooked Camera2 SessionConfiguration: " + m.getName());
                 } else if (List.class.isAssignableFrom(params[0])) {
                     m.setAccessible(true);
                     xposed.hook(m)
@@ -148,11 +107,131 @@ public final class CameraSurfaceHijack {
                                 }
                                 return chain.proceed();
                             });
-                    Log.i(TAG, "Hooked Camera2 List: " + m);
+                    Log.i(TAG, "Hooked Camera2 List: " + m.getName());
                 }
             }
         } catch (Throwable t) {
             Log.e(TAG, "hookCamera2 error", t);
+        }
+    }
+
+    // 拦截 CaptureRequest 构建与提交，解决 "CaptureRequest contains unconfigured Input/Output Surface" 异常
+    private static void hookCaptureRequest(XposedInterface xposed, ClassLoader cl) {
+        try {
+            Class<?> builderClass = Class.forName("android.hardware.camera2.CaptureRequest$Builder", false, cl);
+
+            try {
+                Method addTarget = builderClass.getDeclaredMethod("addTarget", Surface.class);
+                addTarget.setAccessible(true);
+                xposed.hook(addTarget)
+                        .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                        .intercept(chain -> {
+                            if (!VcamPrefs.isEnabled()) {
+                                return chain.proceed();
+                            }
+                            Surface target = (Surface) chain.getArg(0);
+                            if (target != null) {
+                                Surface drain = sRealToDrainMap.get(target);
+                                if (drain != null) {
+                                    Log.i(TAG, "Remapping CaptureRequest.Builder.addTarget: " + target + " -> " + drain);
+                                    return chain.proceed(new Object[]{ drain });
+                                }
+                            }
+                            return chain.proceed();
+                        });
+                Log.i(TAG, "Hooked CaptureRequest.Builder.addTarget");
+            } catch (Throwable ignored) {}
+
+            try {
+                Method removeTarget = builderClass.getDeclaredMethod("removeTarget", Surface.class);
+                removeTarget.setAccessible(true);
+                xposed.hook(removeTarget)
+                        .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                        .intercept(chain -> {
+                            if (!VcamPrefs.isEnabled()) {
+                                return chain.proceed();
+                            }
+                            Surface target = (Surface) chain.getArg(0);
+                            if (target != null) {
+                                Surface drain = sRealToDrainMap.get(target);
+                                if (drain != null) {
+                                    return chain.proceed(new Object[]{ drain });
+                                }
+                            }
+                            return chain.proceed();
+                        });
+                Log.i(TAG, "Hooked CaptureRequest.Builder.removeTarget");
+            } catch (Throwable ignored) {}
+
+        } catch (Throwable t) {
+            Log.w(TAG, "hookCaptureRequest builder failed: " + t.getMessage());
+        }
+
+        try {
+            Class<?> deviceImpl = Class.forName("android.hardware.camera2.impl.CameraDeviceImpl", false, cl);
+            for (Method m : deviceImpl.getDeclaredMethods()) {
+                String name = m.getName();
+                if (name.equals("submitCaptureRequest") || name.equals("setRepeatingRequest") ||
+                    name.equals("capture") || name.equals("setRepeatingBurst") || name.equals("captureBurst")) {
+                    m.setAccessible(true);
+                    xposed.hook(m)
+                            .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                            .intercept(chain -> {
+                                if (VcamPrefs.isEnabled()) {
+                                    List<Object> args = chain.getArgs();
+                                    if (args != null) {
+                                        for (Object arg : args) {
+                                            if (arg instanceof CaptureRequest) {
+                                                remapRequestSurfaces((CaptureRequest) arg);
+                                            } else if (arg instanceof List) {
+                                                for (Object item : (List<?>) arg) {
+                                                    if (item instanceof CaptureRequest) {
+                                                        remapRequestSurfaces((CaptureRequest) item);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                return chain.proceed();
+                            });
+                }
+            }
+            Log.i(TAG, "Hooked CameraDeviceImpl submitCaptureRequest methods");
+        } catch (Throwable t) {
+            Log.w(TAG, "hookCaptureRequest CameraDeviceImpl failed: " + t.getMessage());
+        }
+    }
+
+    // 纠正 CaptureRequest 中包含的 Surface
+    @SuppressWarnings("unchecked")
+    private static void remapRequestSurfaces(CaptureRequest request) {
+        if (request == null) return;
+        try {
+            Field surfaceSetField = findField(CaptureRequest.class, "mSurfaceSet");
+            if (surfaceSetField != null) {
+                surfaceSetField.setAccessible(true);
+                Object obj = surfaceSetField.get(request);
+                if (obj instanceof Set) {
+                    Set<Surface> set = (Set<Surface>) obj;
+                    List<Surface> toReplace = new ArrayList<>();
+                    for (Surface s : set) {
+                        if (sRealToDrainMap.containsKey(s)) {
+                            toReplace.add(s);
+                        }
+                    }
+                    for (Surface real : toReplace) {
+                        Surface drain = sRealToDrainMap.get(real);
+                        if (drain != null) {
+                            set.remove(real);
+                            set.add(drain);
+                            Log.i(TAG, "Remapped submitted CaptureRequest surface: " + real + " -> " + drain);
+                        }
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "remapRequestSurfaces error: " + t.getMessage());
         }
     }
 
@@ -227,7 +306,7 @@ public final class CameraSurfaceHijack {
             Surface current = firstSurface(cfg);
             if (current == null || !current.isValid()) continue;
 
-            if (sFakeSurfaces.contains(current)) {
+            if (sDrainSurfaces.contains(current)) {
                 continue;
             }
 
@@ -236,8 +315,9 @@ public final class CameraSurfaceHijack {
                 chosenReal = current;
             }
 
-            Surface fake = createUniqueFakeSurface(i);
-            replaceSurfaceDirect(cfg, fake);
+            Surface drain = createSafeDrainSurface(640, 480);
+            sRealToDrainMap.put(current, drain);
+            replaceSurfaceDirect(cfg, drain);
         }
 
         if (chosenReal != null) {
@@ -246,6 +326,7 @@ public final class CameraSurfaceHijack {
         }
     }
 
+    @SuppressWarnings("unchecked")
     private static void swapSurfaceList(List<Surface> surfaces) {
         if (surfaces == null || surfaces.isEmpty()) return;
 
@@ -253,16 +334,17 @@ public final class CameraSurfaceHijack {
 
         for (int i = 0; i < surfaces.size(); i++) {
             Surface s = surfaces.get(i);
-            if (s == null || !s.isValid() || sFakeSurfaces.contains(s)) continue;
+            if (s == null || !s.isValid() || sDrainSurfaces.contains(s)) continue;
 
             Log.i(TAG, "Camera2 raw Surface real target: " + s);
             if (chosenReal == null) {
                 chosenReal = s;
             }
 
-            Surface fake = createUniqueFakeSurface(i);
+            Surface drain = createSafeDrainSurface(640, 480);
+            sRealToDrainMap.put(s, drain);
             try {
-                surfaces.set(i, fake);
+                surfaces.set(i, drain);
             } catch (Throwable ignored) {}
         }
 
@@ -273,7 +355,7 @@ public final class CameraSurfaceHijack {
     }
 
     @SuppressWarnings("unchecked")
-    private static void replaceSurfaceDirect(OutputConfiguration cfg, Surface fake) {
+    private static void replaceSurfaceDirect(OutputConfiguration cfg, Surface drain) {
         try {
             Field surfacesField = findField(OutputConfiguration.class, "mSurfaces");
             if (surfacesField != null) {
@@ -282,7 +364,7 @@ public final class CameraSurfaceHijack {
                 if (obj instanceof List) {
                     List<Surface> list = (List<Surface>) obj;
                     list.clear();
-                    list.add(fake);
+                    list.add(drain);
                     return;
                 }
             }
@@ -290,7 +372,7 @@ public final class CameraSurfaceHijack {
             Field surfaceField = findField(OutputConfiguration.class, "mSurface");
             if (surfaceField != null) {
                 surfaceField.setAccessible(true);
-                surfaceField.set(cfg, fake);
+                surfaceField.set(cfg, drain);
                 return;
             }
         } catch (Throwable t) {
@@ -298,7 +380,7 @@ public final class CameraSurfaceHijack {
         }
 
         try {
-            cfg.addSurface(fake);
+            cfg.addSurface(drain);
         } catch (Throwable ignored) {}
     }
 
@@ -330,27 +412,42 @@ public final class CameraSurfaceHijack {
         return null;
     }
 
-    // 确保假表面缓冲消费线程就绪
+    // 确保后台消费线程就绪
     private static synchronized void ensureDrainThread() {
         if (sDrainThread == null) {
-            sDrainThread = new HandlerThread("vcam-fake-drain");
+            sDrainThread = new HandlerThread("vcam-safe-drain");
             sDrainThread.start();
             sDrainHandler = new Handler(sDrainThread.getLooper());
         }
     }
 
-    // 创建具有自动消费机制的唯一假表面
-    private static synchronized Surface createUniqueFakeSurface(int index) {
+    // 使用原生 ImageReader 创建安全无头的消费表面 (无需任何 OpenGL/EGL 上下文，彻底杜绝死锁与 Watchdog 重启)
+    private static synchronized Surface createSafeDrainSurface(int width, int height) {
         ensureDrainThread();
-        SurfaceTexture st = new SurfaceTexture(1001 + index);
-        st.setDefaultBufferSize(1920, 1080);
-        st.setOnFrameAvailableListener(surfaceTexture -> {
+        int w = width > 0 ? width : 640;
+        int h = height > 0 ? height : 480;
+
+        ImageReader reader = ImageReader.newInstance(w, h, ImageFormat.YUV_420_888, 2);
+        reader.setOnImageAvailableListener(r -> {
             try {
-                surfaceTexture.updateTexImage();
+                Image img = r.acquireLatestImage();
+                if (img != null) {
+                    img.close();
+                }
             } catch (Throwable ignored) {}
         }, sDrainHandler);
-        Surface s = new Surface(st);
-        sFakeSurfaces.add(s);
+
+        // 保持适度缓存量，避免内存占用累积
+        if (sActiveReaders.size() > 8) {
+            ImageReader old = sActiveReaders.remove(0);
+            try {
+                old.close();
+            } catch (Throwable ignored) {}
+        }
+        sActiveReaders.add(reader);
+
+        Surface s = reader.getSurface();
+        sDrainSurfaces.add(s);
         return s;
     }
 }

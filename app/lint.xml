@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- 死代码、冗余代码与无用资源检测 (作为 Error 强制拦截) -->
+    <issue id="UnusedResources" severity="error" />
+    <issue id="UnusedIds" severity="error" />
+    <issue id="ObsoleteSdkInt" severity="error" />
+    <issue id="UnusedNamespace" severity="error" />
+
+    <!-- 依赖版本建议作为 informational -->
+    <issue id="GradleDependency" severity="informational" />
+    <issue id="NewerVersionAvailable" severity="informational" />
+</lint>

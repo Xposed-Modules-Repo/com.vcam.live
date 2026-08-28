@@ -83,11 +83,9 @@ public final class MediaDecoder {
 
         if (codec != null && isRunning.get()) {
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    codec.setOutputSurface(newSurface);
-                    Log.i(TAG, "setOutputSurface hot-swapped successfully: " + newSurface);
-                    return;
-                }
+                codec.setOutputSurface(newSurface);
+                Log.i(TAG, "setOutputSurface hot-swapped successfully: " + newSurface);
+                return;
             } catch (Throwable t) {
                 Log.w(TAG, "setOutputSurface failed, fallback to restart: " + t.getMessage());
             }

@@ -1,5 +1,6 @@
 package com.vcam.live;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
@@ -31,6 +32,7 @@ public final class VcamPrefs {
     }
 
     // 保存配置到持久化存储与跨进程文件
+    @SuppressLint({"SetWorldReadable", "SetWorldWritable"})
     public static void saveConfig(Context context, Config config) {
         cachedEnabled = config.enabled;
         try {

@@ -7,6 +7,7 @@
     <string name="action_start">START</string>
     <string name="action_stop">STOP</string>
     <string name="stream_url_label">推流地址</string>
+    <string name="default_stream_url">srt://0.0.0.0:9999</string>
     <string name="action_copy">复制地址</string>
     <string name="copied_toast">推流地址已复制到剪贴板</string>
 </resources>

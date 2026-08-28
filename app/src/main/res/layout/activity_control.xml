@@ -93,7 +93,7 @@
                 android:id="@+id/tvStreamUrl"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="srt://0.0.0.0:9999"
+                android:text="@string/default_stream_url"
                 android:textAppearance="?attr/textAppearanceTitleMedium"
                 android:textStyle="bold"
                 android:fontFamily="monospace"
