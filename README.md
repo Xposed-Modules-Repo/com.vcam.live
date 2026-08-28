@@ -81,6 +81,12 @@ ffmpeg -hide_banner -loglevel warning -i - -c:v copy -f mpegts "srt://<手机IP>
 
 ## 如何收录至 Vector / LSPosed 在线模块仓库？
 
+本模块已收录至官方在线仓库 [Xposed-Modules-Repo/com.vcam.live](https://github.com/Xposed-Modules-Repo/com.vcam.live)，可在 Vector / LSPosed 客户端「在线仓库」中直接搜索 `vcam` 并一键安装、自动更新。
+
+> 模块已上架至 [modules.lsposed.org](https://modules.lsposed.org/module/com.vcam.live/)，请确认你已订阅官方在线仓库后刷新。
+
+### 收录流程
+
 将本项目提交至 **[Xposed-Modules-Repo](https://github.com/Xposed-Modules-Repo/submission)**，即可在 Vector / LSPosed 客户端的「在线仓库」中直接搜索、一键安装与在线自动更新，后续更新无需每次手动 ADB 安装：
 
 1. 打开 [Xposed-Modules-Repo Submission](https://github.com/Xposed-Modules-Repo/submission/issues/new/choose)；
