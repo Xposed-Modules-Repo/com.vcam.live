@@ -49,6 +49,7 @@ public final class MediaDecoder {
 
         try {
             MediaFormat format = MediaFormat.createVideoFormat(MIME_TYPE, width, height);
+            format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 2 * 1024 * 1024);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1);
             }
@@ -99,58 +100,48 @@ public final class MediaDecoder {
             return;
         }
 
-        int remaining = length;
-        int currentOffset = offset;
+        final MediaCodec c;
+        synchronized (this) {
+            c = this.codec;
+        }
+        if (c == null || !isRunning.get()) {
+            return;
+        }
 
-        while (remaining > 0 && isRunning.get()) {
-            final MediaCodec c;
-            synchronized (this) {
-                c = this.codec;
+        try {
+            int inputIndex = -1;
+            for (int retry = 0; retry < 10 && inputIndex < 0 && isRunning.get(); retry++) {
+                inputIndex = c.dequeueInputBuffer(20000);
             }
-            if (c == null || !isRunning.get()) {
-                break;
+
+            if (inputIndex < 0) {
+                Log.w(TAG, "MediaCodec input buffer busy, skipping packet");
+                return;
             }
 
-            try {
-                int inputIndex = -1;
-                for (int retry = 0; retry < 3 && inputIndex < 0 && isRunning.get(); retry++) {
-                    inputIndex = c.dequeueInputBuffer(15000);
-                }
-
-                if (inputIndex < 0) {
-                    break;
-                }
-
-                ByteBuffer inputBuffer = c.getInputBuffer(inputIndex);
-                if (inputBuffer == null) {
-                    break;
-                }
-
-                inputBuffer.clear();
-                int chunkSize = Math.min(remaining, inputBuffer.capacity());
-                inputBuffer.put(data, currentOffset, chunkSize);
-
-                long presentationTime = ptsUs > 0 ? ptsUs : System.nanoTime() / 1000L;
-                c.queueInputBuffer(inputIndex, 0, chunkSize, presentationTime, 0);
-
-                currentOffset += chunkSize;
-                remaining -= chunkSize;
-            } catch (MediaCodec.CodecException ce) {
-                if (isRunning.get()) {
-                    Log.w(TAG, "CodecException in feedNalu: " + ce.getMessage());
-                    restartDecoder();
-                }
-                break;
-            } catch (IllegalStateException ise) {
-                if (isRunning.get()) {
-                    Log.w(TAG, "IllegalStateException in feedNalu: " + ise.getMessage());
-                    restartDecoder();
-                }
-                break;
-            } catch (Throwable t) {
-                Log.w(TAG, "feedNalu error: " + t.getMessage());
-                break;
+            ByteBuffer inputBuffer = c.getInputBuffer(inputIndex);
+            if (inputBuffer == null) {
+                return;
             }
+
+            inputBuffer.clear();
+            int toWrite = Math.min(length, inputBuffer.capacity());
+            inputBuffer.put(data, offset, toWrite);
+
+            long presentationTime = ptsUs > 0 ? ptsUs : (System.nanoTime() / 1000L);
+            c.queueInputBuffer(inputIndex, 0, toWrite, presentationTime, 0);
+        } catch (MediaCodec.CodecException ce) {
+            if (isRunning.get()) {
+                Log.w(TAG, "CodecException in feedNalu: " + ce.getMessage());
+                asyncRestartDecoder();
+            }
+        } catch (IllegalStateException ise) {
+            if (isRunning.get()) {
+                Log.w(TAG, "IllegalStateException in feedNalu: " + ise.getMessage());
+                asyncRestartDecoder();
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "feedNalu error: " + t.getMessage());
         }
     }
 
@@ -192,13 +183,13 @@ public final class MediaDecoder {
             } catch (MediaCodec.CodecException ce) {
                 if (isRunning.get()) {
                     Log.w(TAG, "CodecException in renderLoop: " + ce.getMessage());
-                    restartDecoder();
+                    asyncRestartDecoder();
                 }
                 break;
             } catch (IllegalStateException ise) {
                 if (isRunning.get()) {
                     Log.w(TAG, "IllegalStateException in renderLoop: " + ise.getMessage());
-                    restartDecoder();
+                    asyncRestartDecoder();
                 }
                 break;
             } catch (Throwable t) {
@@ -208,6 +199,18 @@ public final class MediaDecoder {
                 break;
             }
         }
+    }
+
+    // 异步重启解码器，避免在 outputThread 内部自我阻塞死锁
+    private void asyncRestartDecoder() {
+        new Thread(() -> {
+            synchronized (this) {
+                if (!isRunning.get()) return;
+                Log.w(TAG, "Auto-restarting MediaDecoder asynchronously...");
+                stop();
+                start(currentWidth, currentHeight);
+            }
+        }, "vcam-decoder-restart").start();
     }
 
     // 重启解码器
@@ -223,11 +226,13 @@ public final class MediaDecoder {
         isRunning.set(false);
         Thread t = this.outputThread;
         if (t != null) {
-            t.interrupt();
-            try {
-                t.join(300);
-            } catch (InterruptedException ignored) {}
             this.outputThread = null;
+            if (Thread.currentThread() != t) {
+                t.interrupt();
+                try {
+                    t.join(300);
+                } catch (InterruptedException ignored) {}
+            }
         }
         if (codec != null) {
             try {

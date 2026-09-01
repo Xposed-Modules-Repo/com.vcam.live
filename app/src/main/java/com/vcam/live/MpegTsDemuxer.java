@@ -201,8 +201,8 @@ public final class MpegTsDemuxer {
             currentVideoPtsUs = pts * 1000000L / 90000L;
         }
 
+        videoPesBuffer.reset();
         if (dataLen > 0) {
-            videoPesBuffer.reset();
             videoPesBuffer.write(pkt, dataOffset, dataLen);
         }
     }

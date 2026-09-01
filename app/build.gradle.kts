@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace = "com.vcam.live"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.vcam.live"
         minSdk = 26
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 11
         versionName = "1.1.0"
     }
