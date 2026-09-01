@@ -71,7 +71,7 @@ public final class MediaDecoder {
         }
     }
 
-    // 热替换输出表面
+    // 热替换输出表面 (高通平台 setOutputSurface 存在原生 buffer slot 丢失问题，直接重启编解码器最为干净稳定)
     public synchronized void updateTargetSurface(Surface newSurface) {
         if (newSurface == null || !newSurface.isValid()) {
             return;
@@ -82,15 +82,9 @@ public final class MediaDecoder {
         this.targetSurface = newSurface;
         Log.i(TAG, "Updating target surface to: " + newSurface);
 
-        if (codec != null && isRunning.get()) {
-            try {
-                codec.setOutputSurface(newSurface);
-                Log.i(TAG, "setOutputSurface hot-swapped successfully: " + newSurface);
-                return;
-            } catch (Throwable t) {
-                Log.w(TAG, "setOutputSurface failed, fallback to restart: " + t.getMessage());
-            }
-            restartDecoder();
+        if (isRunning.get()) {
+            stop();
+            start(currentWidth, currentHeight);
         }
     }
 
