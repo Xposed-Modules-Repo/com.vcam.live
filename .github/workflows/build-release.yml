@@ -64,11 +64,11 @@ jobs:
           name: vcam ${{ steps.version.outputs.version }}
           body: |
             ## vcam 新版本 ${{ steps.version.outputs.version }}
-            - 修复微信/Camera2 硬件输出死锁与闪退问题
-            - 采用原生 ImageReader 无头安全消费端，彻底解决 Watchdog 重启
-            - CaptureRequest 两阶段 Surface 自动映射
-            - 移除侵入式全局 setDefaultBufferSize Hook
-            - 配置全局 Gradle Lint 与死代码检测
+            - 优化 MediaCodec 硬件解码器输入缓冲区至 2MB，彻底解决高码率大 I 帧截断卡顿
+            - 修复高通骁龙平台切换画幅/相机时丢失缓冲槽黑屏问题（重建解码器实例）
+            - 优化 feedNalu 缓冲区等待重试机制，杜绝静默丢弃视频分片
+            - 修复解码器在 outputThread 中自我 join 的死锁隐患
+            - 修复 MPEG-TS 解复用器 PES 缓冲区重置边界
             - 零渲染直通架构与 SRT 低延迟传输
           files: ${{ steps.apk.outputs.path }}
           draft: false
