@@ -304,14 +304,13 @@ public final class CameraSurfaceHijack {
         for (int i = 0; i < outputs.size(); i++) {
             OutputConfiguration cfg = outputs.get(i);
             Surface current = firstSurface(cfg);
-            if (current == null || !current.isValid()) continue;
-
-            if (sDrainSurfaces.contains(current)) {
-                continue;
-            }
+            if (current == null || !current.isValid() || sDrainSurfaces.contains(current)) continue;
 
             Log.i(TAG, "Camera2 OutputConfiguration real target: " + current);
-            if (chosenReal == null) {
+            String name = current.toString();
+            if (name.contains("SurfaceTexture") || name.contains("SurfaceView")) {
+                chosenReal = current;
+            } else if (chosenReal == null) {
                 chosenReal = current;
             }
 
@@ -337,7 +336,10 @@ public final class CameraSurfaceHijack {
             if (s == null || !s.isValid() || sDrainSurfaces.contains(s)) continue;
 
             Log.i(TAG, "Camera2 raw Surface real target: " + s);
-            if (chosenReal == null) {
+            String name = s.toString();
+            if (name.contains("SurfaceTexture") || name.contains("SurfaceView")) {
+                chosenReal = s;
+            } else if (chosenReal == null) {
                 chosenReal = s;
             }
 

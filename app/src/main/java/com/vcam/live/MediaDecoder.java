@@ -27,6 +27,7 @@ public final class MediaDecoder {
 
     private int currentWidth = 1920;
     private int currentHeight = 1080;
+    private byte[] cachedSpsPps = null;
 
     public MediaDecoder(Surface targetSurface, FormatCallback formatCallback) {
         this.targetSurface = targetSurface;
@@ -65,27 +66,29 @@ public final class MediaDecoder {
             outputThread.start();
 
             Log.i(TAG, "MediaCodec started directly for Surface: " + targetSurface + " " + width + "x" + height);
+
+            if (cachedSpsPps != null) {
+                feedNaluInternal(cachedSpsPps, 0, cachedSpsPps.length, 0);
+            }
         } catch (Throwable t) {
             Log.e(TAG, "Failed to start MediaCodec", t);
             stop();
         }
     }
 
-    // 热替换输出表面 (高通平台 setOutputSurface 存在原生 buffer slot 丢失问题，直接重启编解码器最为干净稳定)
+    // 热替换输出表面 (无论当前处于运行态还是已停止态，只要有新的有效 Surface 注入，均无条件重建解码器并绑定)
     public synchronized void updateTargetSurface(Surface newSurface) {
         if (newSurface == null || !newSurface.isValid()) {
             return;
         }
-        if (this.targetSurface == newSurface) {
+        if (this.targetSurface == newSurface && isRunning.get()) {
             return;
         }
         this.targetSurface = newSurface;
         Log.i(TAG, "Updating target surface to: " + newSurface);
 
-        if (isRunning.get()) {
-            stop();
-            start(currentWidth, currentHeight);
-        }
+        stop();
+        start(currentWidth, currentHeight);
     }
 
     // 喂入视频数据
@@ -94,6 +97,16 @@ public final class MediaDecoder {
             return;
         }
 
+        if (containsSps(data, offset, length)) {
+            byte[] spsCopy = new byte[length];
+            System.arraycopy(data, offset, spsCopy, 0, length);
+            cachedSpsPps = spsCopy;
+        }
+
+        feedNaluInternal(data, offset, length, ptsUs);
+    }
+
+    private void feedNaluInternal(byte[] data, int offset, int length, long ptsUs) {
         final MediaCodec c;
         synchronized (this) {
             c = this.codec;
@@ -137,6 +150,24 @@ public final class MediaDecoder {
         } catch (Throwable t) {
             Log.w(TAG, "feedNalu error: " + t.getMessage());
         }
+    }
+
+    private static boolean containsSps(byte[] data, int offset, int length) {
+        int end = offset + length - 4;
+        for (int i = offset; i < end; i++) {
+            if (data[i] == 0 && data[i + 1] == 0) {
+                int nalType = -1;
+                if (data[i + 2] == 1 && i + 3 < offset + length) {
+                    nalType = data[i + 3] & 0x1F;
+                } else if (data[i + 2] == 0 && data[i + 3] == 1 && i + 4 < offset + length) {
+                    nalType = data[i + 4] & 0x1F;
+                }
+                if (nalType == 7) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     // 循环提取解码帧并直出渲染
